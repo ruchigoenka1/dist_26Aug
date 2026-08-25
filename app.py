@@ -60,6 +60,3 @@ compare_page = st.Page("compare_page.py", title="Historical Comparison", icon="â
 
 pg = st.navigation([sim_page, plot_page, compare_page])
 pg.run()
-
-pg = st.navigation([sim_page, plot_page])
-pg.run()
