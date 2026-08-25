@@ -177,7 +177,7 @@ fig.add_trace(go.Scatter(
     y=stockouts["Closing Balance"],
     mode="markers", 
     name="Stockout", 
-    marker=dict(color="red", symbol="triangle-up", size=7) # Added triangle symbol and reduced size
+    marker=dict(color="red", symbol="triangle-up", size=10) # Added triangle symbol and reduced size
 ))
 
 # Reorder Point Line
