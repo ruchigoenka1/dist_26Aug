@@ -156,14 +156,26 @@ if uploaded_file is not None:
         # ------------------------------------------------
         st.subheader("Comparison & Performance KPIs")
         
+        # --- Calculations ---
         avg_hist = df_filled[balance_col].mean()
         avg_sim = df_filled['Simulated Balance'].mean()
+        min_hist = df_filled[balance_col].min()
+        max_hist = df_filled[balance_col].max()
+        min_sim = df_filled['Simulated Balance'].min()
+        max_sim = df_filled['Simulated Balance'].max()
+        
+        avg_demand = df_filled['Derived Demand'].mean()
+        std_demand = df_filled['Derived Demand'].std()
+        cov_demand = std_demand / avg_demand if avg_demand > 0 else 0
+        
         stockout_days = (df_filled['Simulated Balance'] == 0).sum()
         
         fill_rate = 100.0
         if total_demand > 0:
             fill_rate = ((total_demand - total_unmet_demand) / total_demand) * 100
         
+        # --- Display Row 1: Averages & Performance ---
+        st.markdown("**Averages & Performance**")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Historical Avg Inventory", round(avg_hist, 0))
         
@@ -172,6 +184,22 @@ if uploaded_file is not None:
         
         c3.metric("Simulated Stockout Days", stockout_days)
         c4.metric("Simulated Fill Rate", f"{round(fill_rate, 2)}%")
+        
+        # --- Display Row 2: Inventory Ranges ---
+        st.markdown("**Inventory Ranges**")
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Historical Min Balance", round(min_hist, 0))
+        r2.metric("Historical Max Balance", round(max_hist, 0))
+        r3.metric("Simulated Min Balance", round(min_sim, 0))
+        r4.metric("Simulated Max Balance", round(max_sim, 0))
+
+        # --- Display Row 3: Demand Statistics ---
+        st.markdown("**Historical Demand Statistics**")
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Average Daily Demand", round(avg_demand, 1))
+        d2.metric("Demand Std Dev", round(std_demand, 1))
+        d3.metric("Coefficient of Variation (CoV)", round(cov_demand, 2))
+        
         
         # ------------------------------------------------
         # Plotting the Comparison
