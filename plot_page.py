@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import io
 
 def style_plotly_fig(fig):
     fig.update_layout(
@@ -12,14 +13,46 @@ def style_plotly_fig(fig):
     fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
     return fig
 
-st.title("Historical Closing Balance Plotter")
-st.write("Upload a CSV file containing your transaction dates/days and closing balances. Missing gaps will be automatically filled with the previous day's balance.")
+# ------------------------------------------------
+# Sample Excel Generator
+# ------------------------------------------------
+def generate_sample_excel():
+    df_sample = pd.DataFrame({
+        "Date": ["2024-01-01", "2024-01-03", "2024-01-07"],
+        "Closing Balance": [500, 439, 358]
+    })
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_sample.to_excel(writer, index=False, sheet_name='Sample Data')
+    return buffer.getvalue()
 
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+st.title("Historical Closing Balance Plotter")
+st.write("Upload a CSV or Excel file containing your transaction dates/days and closing balances. Missing gaps will be automatically filled with the previous day's balance.")
+
+# ------------------------------------------------
+# Download Template Section
+# ------------------------------------------------
+st.download_button(
+    label="📥 Download Sample Excel Template",
+    data=generate_sample_excel(),
+    file_name="inventory_sample_template.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+st.divider()
+
+# ------------------------------------------------
+# File Upload & Processing
+# ------------------------------------------------
+uploaded_file = st.file_uploader("Upload File", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file)
+        # Check file extension to use the correct pandas read function
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file)
         
         # Assume the first column is the time index and the second is the balance
         time_col = df.columns[0]
@@ -70,4 +103,4 @@ if uploaded_file is not None:
         st.dataframe(df_filled, use_container_width=True)
             
     except Exception as e:
-        st.error(f"Error processing file. Please ensure your CSV has two columns (Time/Date and Balance). Error details: {e}")
+        st.error(f"Error processing file. Please ensure your file has two columns (Time/Date and Balance). Error details: {e}")
