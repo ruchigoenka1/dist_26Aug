@@ -87,26 +87,13 @@ if uploaded_file is not None:
         st.divider()
         
         # ------------------------------------------------
-        # Chart Controls (Thresholds & Highlighting)
+        # Chart Controls (Thresholds)
         # ------------------------------------------------
         st.subheader("Chart Analysis Tools")
-        col1, col2 = st.columns(2)
         
-        with col1:
-            st.markdown("**Minimum Level Alert Box**")
-            min_threshold = st.number_input("Set Alert Threshold", value=float(actual_min))
-            show_min_box = st.checkbox("Show red box below this level", value=True)
-            
-        with col2:
-            st.markdown("**Highlight Specific Period**")
-            mark_section = st.checkbox("Mark Seasonality or Data Range")
-            if mark_section:
-                if is_numeric_index:
-                    start_mark = st.number_input("Start Day", value=int(df_filled[time_col].min()))
-                    end_mark = st.number_input("End Day", value=int(df_filled[time_col].max()))
-                else:
-                    start_mark = st.date_input("Start Date", value=df_filled[time_col].min())
-                    end_mark = st.date_input("End Date", value=df_filled[time_col].max())
+        st.markdown("**Minimum Level Alert Box**")
+        min_threshold = st.number_input("Set Alert Threshold", value=float(actual_min))
+        show_min_box = st.checkbox("Show red box below this level", value=True)
         
         # ------------------------------------------------
         # Plotting the data
@@ -132,17 +119,6 @@ if uploaded_file is not None:
                 annotation_font_color="white"
             )
             
-        # Add the vertical box to highlight seasonality
-        if mark_section:
-            fig.add_vrect(
-                x0=start_mark, x1=end_mark, 
-                fillcolor="yellow", opacity=0.1, 
-                line_width=1, line_color="orange",
-                annotation_text="Highlighted Period", 
-                annotation_font_color="white",
-                annotation_position="top left"
-            )
-        
         fig = style_plotly_fig(fig)
         st.plotly_chart(fig, use_container_width=True)
         
