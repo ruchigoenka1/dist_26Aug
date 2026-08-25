@@ -170,6 +170,16 @@ fig.add_trace(go.Scatter(
     marker=dict(color="green", symbol="triangle-up", size=10)
 ))
 
+# Stockout markers
+stockouts = df[df["Closing Balance"] == 0]
+fig.add_trace(go.Scatter(
+    x=stockouts["Date"], 
+    y=stockouts["Closing Balance"],
+    mode="markers", 
+    name="Stockout", 
+    marker=dict(color="red", symbol="triangle-down", size=7) # Added triangle symbol and reduced size
+))
+
 # Reorder Point Line
 fig.add_hline(
     y=reorder_point, 
