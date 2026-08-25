@@ -4,15 +4,15 @@ import numpy as np
 import plotly.graph_objects as go
 import io
 
-# Minimalist styling function with a white background and blue accents
+# Updated styling function for a dark background
 def style_plotly_fig(fig):
     fig.update_layout(
-        plot_bgcolor='white', 
-        paper_bgcolor='white',
-        font=dict(color='black'),
-        title_font=dict(color='black'),
+        plot_bgcolor='#0E1117', 
+        paper_bgcolor='#0E1117',
+        font=dict(color='white'),
+        title_font=dict(color='white'),
         legend=dict(
-            font=dict(color='black'),
+            font=dict(color='white'),
             orientation="h",
             yanchor="bottom",
             y=1.02,
@@ -20,8 +20,8 @@ def style_plotly_fig(fig):
             x=1
         )
     )
-    fig.update_xaxes(showline=True, linewidth=1, linecolor='black', gridcolor='#e6e6e6')
-    fig.update_yaxes(showline=True, linewidth=1, linecolor='black', gridcolor='#e6e6e6', rangemode="tozero")
+    fig.update_xaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b')
+    fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
     return fig
 
 # ------------------------------------------------
@@ -38,7 +38,7 @@ def generate_sample_excel():
     return buffer.getvalue()
 
 st.title("Historical vs Simulated Comparison")
-st.write("Upload your historical inventory data. The system will extract your daily demand ranges, run a simulation, and compare the average inventory levels.")
+st.write("Upload your historical inventory data. The system extracts exact daily demand, runs a simulation using your current policy parameters, and compares the outcomes.")
 
 # ------------------------------------------------
 # Download Template Section
@@ -96,14 +96,10 @@ if uploaded_file is not None:
         )
         df_filled['Derived Demand'] = df_filled['Derived Demand'].fillna(0)
         
-        actual_min_demand = int(df_filled['Derived Demand'].min())
-        actual_max_demand = int(df_filled['Derived Demand'].max())
-        
         # ------------------------------------------------
         # Sidebar Inputs
         # ------------------------------------------------
         st.sidebar.header("Simulation Parameters")
-        st.sidebar.info(f"**Extracted Demand:**\nMin: {actual_min_demand} / Max: {actual_max_demand}")
         
         reorder_point = st.sidebar.number_input("Reorder Point", value=200)
         opening_balance = st.sidebar.number_input("Opening Balance", value=int(1.25 * reorder_point))
@@ -111,16 +107,17 @@ if uploaded_file is not None:
         order_qty = st.sidebar.number_input("Order Quantity", value=300)
         
         # ------------------------------------------------
-        # Simulation Logic
+        # Simulation Logic (Using Exact Historical Demand)
         # ------------------------------------------------
         num_days = len(df_filled)
-        
-        # Generate uniform demand based on extracted min/max
-        sim_demand = np.random.randint(actual_min_demand, actual_max_demand + 1, num_days)
+        sim_demand = df_filled['Derived Demand'].values
         
         inventory = opening_balance
         pipeline_orders = []
         sim_closing_balances = []
+        
+        total_demand = 0
+        total_unmet_demand = 0
         
         for day in range(num_days):
             shipment_received = 0
@@ -130,11 +127,19 @@ if uploaded_file is not None:
                     pipeline_orders.remove(order)
                     
             inventory += shipment_received
+            
             demand_today = sim_demand[day]
+            total_demand += demand_today
+            
             inventory -= demand_today
             
+            # Track stockouts and unmet demand for Fill Rate
+            unmet_today = 0
             if inventory < 0:
+                unmet_today = abs(inventory)
                 inventory = 0
+                
+            total_unmet_demand += unmet_today
                 
             pipeline_qty = sum(qty for arrival, qty in pipeline_orders)
             inventory_position = inventory + pipeline_qty
@@ -149,16 +154,24 @@ if uploaded_file is not None:
         # ------------------------------------------------
         # Output & Comparison KPIs
         # ------------------------------------------------
-        st.subheader("Average Inventory Comparison")
+        st.subheader("Comparison & Performance KPIs")
         
         avg_hist = df_filled[balance_col].mean()
         avg_sim = df_filled['Simulated Balance'].mean()
+        stockout_days = (df_filled['Simulated Balance'] == 0).sum()
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Historical Average", round(avg_hist, 0))
-        c2.metric("Simulated Average", round(avg_sim, 0))
+        fill_rate = 100.0
+        if total_demand > 0:
+            fill_rate = ((total_demand - total_unmet_demand) / total_demand) * 100
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Historical Avg Inventory", round(avg_hist, 0))
+        
         diff = avg_sim - avg_hist
-        c3.metric("Difference", round(diff, 0), delta=round(diff, 0), delta_color="inverse")
+        c2.metric("Simulated Avg Inventory", round(avg_sim, 0), delta=round(diff, 0), delta_color="inverse")
+        
+        c3.metric("Simulated Stockout Days", stockout_days)
+        c4.metric("Simulated Fill Rate", f"{round(fill_rate, 2)}%")
         
         # ------------------------------------------------
         # Plotting the Comparison
@@ -179,11 +192,21 @@ if uploaded_file is not None:
             y=df_filled['Simulated Balance'],
             mode="lines",
             name="Simulated Balance",
-            line=dict(color="#0052cc", width=2) # Standard blue
+            line=dict(color="skyblue", width=2)
         ))
         
         fig = style_plotly_fig(fig)
         st.plotly_chart(fig, use_container_width=True)
+        
+        # ------------------------------------------------
+        # Data Tables
+        # ------------------------------------------------
+        st.divider()
+        st.subheader("Historical Data")
+        st.dataframe(df_filled[[time_col, balance_col, 'Derived Demand']], use_container_width=True)
+        
+        st.subheader("Simulated Data")
+        st.dataframe(df_filled[[time_col, 'Derived Demand', 'Simulated Balance']], use_container_width=True)
         
     except Exception as e:
         st.error(f"Error processing file: {e}")
