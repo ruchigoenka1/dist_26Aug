@@ -203,3 +203,11 @@ fig.update_xaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2
 fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
 
 st.plotly_chart(fig, use_container_width=True)
+
+# ------------------------------------------------
+# Simulation Data Table
+# ------------------------------------------------
+st.subheader("Simulation Data")
+
+# Display the dataframe; it will automatically adapt to Streamlit's dark mode
+st.dataframe(df, use_container_width=True)
