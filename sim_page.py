@@ -142,19 +142,64 @@ c4.metric("Avg Working Capital", round(df["Blocked Working Capital"].mean(), 0))
 st.subheader("Inventory Behaviour")
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=df["Date"], y=df["Closing Balance"], name="Closing Inventory", line=dict(color='blue')))
 
-if include_pipeline:
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["Closing Balance Including Pipeline"], name="Inventory Position", line=dict(color='lightblue', dash='dash')))
-
-fig.add_hline(y=reorder_point, line_dash="dash", line_color="black", annotation_text="Reorder Point")
-
-# Stockout markers
-stockouts = df[df["Closing Balance"] == 0]
+# Closing Inventory (Light blue to stand out on dark background)
 fig.add_trace(go.Scatter(
-    x=stockouts["Date"], y=stockouts["Closing Balance"],
-    mode="markers", name="Stockout", marker=dict(color="red", size=9)
+    x=df["Date"], 
+    y=df["Closing Balance"], 
+    name="Closing Inventory", 
+    line=dict(color='skyblue', width=2)
 ))
 
-fig = style_plotly_fig(fig)
+# Inventory Position (Standard blue, shown if toggled on)
+if include_pipeline:
+    fig.add_trace(go.Scatter(
+        x=df["Date"], 
+        y=df["Closing Balance Including Pipeline"], 
+        name="Inventory Position", 
+        line=dict(color='#1f77b4', width=2) 
+    ))
+
+# Add Reorder Trigger markers (Green triangles)
+reorders = df[df["New Order"] > 0]
+fig.add_trace(go.Scatter(
+    x=reorders["Date"],
+    y=reorders["Closing Balance"],
+    mode="markers",
+    name="Reorder Trigger",
+    marker=dict(color="green", symbol="triangle-up", size=10)
+))
+
+# Reorder Point Line
+fig.add_hline(
+    y=reorder_point, 
+    line_dash="dash", 
+    line_color="gray", 
+    annotation_text="Reorder Point", 
+    annotation_font_color="white"
+)
+
+# Colored background zones (Red, Yellow, Green)
+max_y = df["Closing Balance Including Pipeline"].max() * 1.2 if include_pipeline else df["Closing Balance"].max() * 1.2
+fig.add_hrect(y0=0, y1=reorder_point*0.5, fillcolor="red", opacity=0.1)
+fig.add_hrect(y0=reorder_point*0.5, y1=reorder_point, fillcolor="yellow", opacity=0.1)
+fig.add_hrect(y0=reorder_point, y1=max_y, fillcolor="green", opacity=0.05)
+
+# Force black/dark background and styling for this specific chart
+fig.update_layout(
+    plot_bgcolor='#0E1117', # Dark background matching Streamlit's dark mode
+    paper_bgcolor='#0E1117',
+    font=dict(color='white'),
+    legend=dict(
+        orientation="v",
+        yanchor="top",
+        y=1,
+        xanchor="left",
+        x=1.02
+    )
+)
+
+fig.update_xaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b')
+fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
+
 st.plotly_chart(fig, use_container_width=True)
