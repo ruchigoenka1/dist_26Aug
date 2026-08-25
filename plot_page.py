@@ -48,36 +48,65 @@ uploaded_file = st.file_uploader("Upload File", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Check file extension to use the correct pandas read function
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
         elif uploaded_file.name.endswith('.xlsx'):
             df = pd.read_excel(uploaded_file)
         
-        # Assume the first column is the time index and the second is the balance
         time_col = df.columns[0]
         balance_col = df.columns[1]
         
-        # Check if the time column is numeric (days 0, 1, 2) or dates
         is_numeric_index = pd.api.types.is_numeric_dtype(df[time_col])
         
         if not is_numeric_index:
-            # Convert to datetime if it's a string date
             df[time_col] = pd.to_datetime(df[time_col])
             
         df = df.sort_values(by=time_col)
         df.set_index(time_col, inplace=True)
         
-        # Create the appropriate full sequence to find missing gaps
         if is_numeric_index:
             full_range = range(int(df.index.min()), int(df.index.max()) + 1)
         else:
             full_range = pd.date_range(start=df.index.min(), end=df.index.max())
         
-        # Reindex to the full range and forward fill missing values
         df_filled = df.reindex(full_range).ffill()
         df_filled.reset_index(inplace=True)
         df_filled.rename(columns={'index': time_col}, inplace=True)
+        
+        # ------------------------------------------------
+        # Historical KPIs (Metrics)
+        # ------------------------------------------------
+        st.subheader("Historical Inventory Metrics")
+        kpi1, kpi2, kpi3 = st.columns(3)
+        actual_min = df_filled[balance_col].min()
+        
+        kpi1.metric("Minimum Balance", round(actual_min, 1))
+        kpi2.metric("Maximum Balance", round(df_filled[balance_col].max(), 1))
+        kpi3.metric("Average Balance", round(df_filled[balance_col].mean(), 1))
+        
+        st.divider()
+        
+        # ------------------------------------------------
+        # Chart Controls (Thresholds & Highlighting)
+        # ------------------------------------------------
+        st.subheader("Chart Analysis Tools")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Minimum Level Alert Box**")
+            min_threshold = st.number_input("Set Alert Threshold", value=float(actual_min))
+            show_min_box = st.checkbox("Show red box below this level", value=True)
+            
+        with col2:
+            st.markdown("**Highlight Specific Period**")
+            mark_section = st.checkbox("Mark Seasonality or Data Range")
+            if mark_section:
+                if is_numeric_index:
+                    start_mark = st.number_input("Start Day", value=int(df_filled[time_col].min()))
+                    end_mark = st.number_input("End Day", value=int(df_filled[time_col].max()))
+                else:
+                    start_mark = st.date_input("Start Date", value=df_filled[time_col].min())
+                    end_mark = st.date_input("End Date", value=df_filled[time_col].max())
         
         # ------------------------------------------------
         # Plotting the data
@@ -93,14 +122,35 @@ if uploaded_file is not None:
             line=dict(color="skyblue", width=2)
         ))
         
+        # Add the horizontal box for the minimum level
+        if show_min_box:
+            fig.add_hrect(
+                y0=0, y1=min_threshold, 
+                fillcolor="red", opacity=0.15, 
+                line_width=0, 
+                annotation_text="Alert Zone", 
+                annotation_font_color="white"
+            )
+            
+        # Add the vertical box to highlight seasonality
+        if mark_section:
+            fig.add_vrect(
+                x0=start_mark, x1=end_mark, 
+                fillcolor="yellow", opacity=0.1, 
+                line_width=1, line_color="orange",
+                annotation_text="Highlighted Period", 
+                annotation_font_color="white",
+                annotation_position="top left"
+            )
+        
         fig = style_plotly_fig(fig)
         st.plotly_chart(fig, use_container_width=True)
         
         # ------------------------------------------------
         # Data Table
         # ------------------------------------------------
-        st.subheader("Filled Data")
-        st.dataframe(df_filled, use_container_width=True)
+        with st.expander("View Filled Data"):
+            st.dataframe(df_filled, use_container_width=True)
             
     except Exception as e:
         st.error(f"Error processing file. Please ensure your file has two columns (Time/Date and Balance). Error details: {e}")
