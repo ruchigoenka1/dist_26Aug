@@ -133,9 +133,22 @@ df["Blocked Working Capital"] = df[display_col] * unit_value
 
 c1.metric("Stockout Days", stockout_days)
 c2.metric("Average Age of Inventory", round(average_age_inventory, 1))
-c3.metric(f"Avg Inventory ({'Total' if include_pipeline else 'Physical'})", round(average_inventory, 0))
-c4.metric("Avg Working Capital", round(df["Blocked Working Capital"].mean(), 0))
+c3.metric(f"Avg Inventory ({'Total' if include_pipeline else 'Physical'})", round(average_inventory, 1))
+c4.metric("Avg Working Capital", round(df["Blocked Working Capital"].mean(), 1))
 
+# Add the new Inventory Range section
+st.subheader("Inventory Range")
+r1, r2, r3, r4 = st.columns(4)
+
+min_inventory = df[display_col].min()
+max_inventory = df[display_col].max()
+min_wc = df["Blocked Working Capital"].min()
+max_wc = df["Blocked Working Capital"].max()
+
+r1.metric("Minimum Inventory", round(min_inventory, 1))
+r2.metric("Maximum Inventory", round(max_inventory, 1))
+r3.metric("Minimum Working Capital", round(min_wc, 1))
+r4.metric("Maximum Working Capital", round(max_wc, 1))
 # ------------------------------------------------
 # Inventory Behaviour Chart
 # ------------------------------------------------
