@@ -167,6 +167,8 @@ if uploaded_file is not None:
         avg_demand = df_filled['Derived Demand'].mean()
         std_demand = df_filled['Derived Demand'].std()
         cov_demand = std_demand / avg_demand if avg_demand > 0 else 0
+        min_demand = df_filled['Derived Demand'].min()
+        max_demand = df_filled['Derived Demand'].max()
         
         stockout_days = (df_filled['Simulated Balance'] == 0).sum()
         
@@ -195,11 +197,12 @@ if uploaded_file is not None:
 
         # --- Display Row 3: Demand Statistics ---
         st.markdown("**Historical Demand Statistics**")
-        d1, d2, d3 = st.columns(3)
-        d1.metric("Average Daily Demand", round(avg_demand, 1))
+        d1, d2, d3, d4, d5 = st.columns(5)
+        d1.metric("Avg Daily Demand", round(avg_demand, 1))
         d2.metric("Demand Std Dev", round(std_demand, 1))
-        d3.metric("Coefficient of Variation (CoV)", round(cov_demand, 2))
-        
+        d3.metric("CoV", round(cov_demand, 2))
+        d4.metric("Min Daily Demand", round(min_demand, 0))
+        d5.metric("Max Daily Demand", round(max_demand, 0))
         
         # ------------------------------------------------
         # Plotting the Comparison
