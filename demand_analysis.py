@@ -134,9 +134,33 @@ def demand_analysis_ui(daily_demand, tab_key):
     
     st.info(f"Scaled **{T}-Day** Forecast Average: {round(forecast_avg_T, 2)} | Scaled Std Dev: {round(forecast_std_T, 2)}")
     
-   # Generate bounded normal distribution representation
+   # ------------------------------------------------
+    # Generate Forecast via Dynamic Model Selection
+    # ------------------------------------------------
     np.random.seed(42)
-    simulated_forecast = np.maximum(0, np.random.normal(forecast_avg_T, forecast_std_T, 10000))
+    daily_mean = actual_mean / T
+    
+    # Logic 1: Slow-moving / Low-volume (Poisson)
+    if daily_mean < 10:
+        simulated_forecast = np.random.poisson(lam=forecast_avg_T, size=10000)
+        st.caption("🤖 **Auto-Selected Model:** Poisson Distribution (Optimized for slow-moving, low-volume inventory)")
+        
+    # Logic 2: Stable / Fast-moving (Normal)
+    elif actual_cov <= 0.5:
+        simulated_forecast = np.maximum(0, np.random.normal(forecast_avg_T, forecast_std_T, 10000))
+        st.caption("🤖 **Auto-Selected Model:** Normal Distribution (Optimized for stable, fast-moving inventory)")
+        
+    # Logic 3: Volatile / Lumpy (Empirical Bootstrapping)
+    else:
+        if actual_mean > 0:
+            raw_samples = np.random.choice(rolling_demand, size=10000, replace=True)
+            scaling_factor = forecast_avg_T / actual_mean
+            simulated_forecast = raw_samples * scaling_factor
+        else:
+            simulated_forecast = np.full(10000, forecast_avg_T)
+            
+        simulated_forecast = np.maximum(0, simulated_forecast)
+        st.caption("🤖 **Auto-Selected Model:** Empirical Bootstrapping (Optimized for highly volatile, lumpy demand)")
     
     forecast_min = simulated_forecast.min()
     forecast_max = simulated_forecast.max()
