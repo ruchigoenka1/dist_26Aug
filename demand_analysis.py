@@ -60,34 +60,52 @@ def demand_analysis_ui(daily_demand, tab_key):
         st.info("Demand is constant. No distribution to show.")
         return
         
-    # Re-added manual bin size control, forced to integers
-    max_bin_size = max(1, int(data_range))
-    default_bin_size = max(1, int(data_range / 10))
-    
-    bin_size = st.number_input(
-        "Select Bin Size (Width)", 
-        min_value=1, 
-        max_value=max_bin_size, 
-        value=default_bin_size, 
-        step=1, 
-        key=f"bin_size_{tab_key}"
+    # ------------------------------------------------
+    # Rolling Demand Binning Options
+    # ------------------------------------------------
+    bin_method_actual = st.radio(
+        "Choose Binning Method:", 
+        ["Number of Bins", "Bin Width"], 
+        horizontal=True, 
+        key=f"r_bin_method_{tab_key}"
     )
     
     fig1 = go.Figure()
-    fig1.add_trace(go.Histogram(
-        x=rolling_demand,
-        xbins=dict(start=actual_min, end=actual_max + bin_size, size=bin_size),
-        marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
-        marker_line=dict(color='#3399ff', width=2), # Solid light blue outline
-        name="Frequency"
-    ))
+    
+    if bin_method_actual == "Number of Bins":
+        actual_bins = st.number_input("Number of Bins", min_value=5, max_value=200, value=10, step=1, key=f"r_bins_count_{tab_key}")
+        
+        fig1.add_trace(go.Histogram(
+            x=rolling_demand,
+            nbinsx=actual_bins,
+            marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
+            marker_line=dict(color='#3399ff', width=2), # Solid light blue outline
+            name="Frequency"
+        ))
+        
+        counts, bin_edges = np.histogram(rolling_demand, bins=actual_bins)
+        
+    else:
+        max_width = max(1, int(data_range))
+        default_width = max(1, int(data_range / 10)) if data_range >= 10 else 1
+        
+        bin_width = st.number_input("Bin Width", min_value=1, max_value=max_width, value=default_width, step=1, key=f"r_bins_width_{tab_key}")
+        
+        fig1.add_trace(go.Histogram(
+            x=rolling_demand,
+            xbins=dict(start=actual_min, end=actual_max + bin_width, size=bin_width),
+            marker_color='rgba(173, 216, 230, 0.8)', 
+            marker_line=dict(color='#3399ff', width=2),
+            name="Frequency"
+        ))
+        
+        bins_array = np.arange(actual_min, actual_max + bin_width + 1, bin_width)
+        counts, bin_edges = np.histogram(rolling_demand, bins=bins_array)
+
     fig1.update_layout(title=f"Demand Frequency over {T} Days", xaxis_title="Demand Quantity", yaxis_title="Absolute Count")
     fig1 = style_plotly_fig(fig1)
     st.plotly_chart(fig1, use_container_width=True)
     
-    # Absolute Frequency Table using the user-defined bins
-    bins_array = np.arange(actual_min, actual_max + bin_size + 1, bin_size)
-    counts, bin_edges = np.histogram(rolling_demand, bins=bins_array)
     freq_df = pd.DataFrame({
         "Bin Start": np.round(bin_edges[:-1], 2),
         "Bin End": np.round(bin_edges[1:], 2),
