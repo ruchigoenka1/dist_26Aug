@@ -47,11 +47,13 @@ def demand_analysis_ui(daily_demand, tab_key):
     actual_std = rolling_demand.std()
     actual_cov = actual_std / actual_mean if actual_mean > 0 else 0
     
-    c1, c2, c3, c4 = st.columns(4)
+    # Expanded to 5 columns to include the Average Demand
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric(f"Min Demand ({T} Days)", round(actual_min, 2))
     c2.metric(f"Max Demand ({T} Days)", round(actual_max, 2))
-    c3.metric("Standard Deviation", round(actual_std, 2))
-    c4.metric("Coefficient of Variation", round(actual_cov, 3))
+    c3.metric(f"Avg Demand ({T} Days)", round(actual_mean, 2))
+    c4.metric("Standard Deviation", round(actual_std, 2))
+    c5.metric("Coefficient of Variation", round(actual_cov, 3))
     
     st.markdown("**Frequency Distribution**")
     
