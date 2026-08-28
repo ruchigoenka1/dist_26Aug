@@ -57,6 +57,7 @@ with st.sidebar:
 sim_page = st.Page("sim_page.py", title="Inventory Simulator", icon="⚙️")
 plot_page = st.Page("plot_page.py", title="Closing Balance Plotter", icon="📈")
 compare_page = st.Page("compare_page.py", title="Historical Comparison", icon="⚖️")
+demand_page = st.Page("demand_analysis.py", title="Demand Analysis", icon="📊")
 
-pg = st.navigation([sim_page, plot_page, compare_page])
+pg = st.navigation([sim_page, plot_page, compare_page, demand_page])
 pg.run()
