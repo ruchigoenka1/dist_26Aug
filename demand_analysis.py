@@ -254,6 +254,141 @@ def demand_analysis_ui(daily_demand, tab_key):
         achieved_sl = stats.percentileofscore(simulated_forecast, inv_amount)
         st.metric(f"Achieved Service Level ({T} Days)", f"{round(achieved_sl, 1)}%")
 
+    st.divider()
+    
+    # ------------------------------------------------
+    # Section 4: Historical Demand Simulation
+    # ------------------------------------------------
+    st.subheader("Section 4: Historical Demand Simulation")
+    st.markdown("Simulate inventory performance using the actual historical demand profile against specific trigger points.")
+    
+    c_sim1, c_sim2, c_sim3, c_sim4 = st.columns(4)
+    with c_sim1:
+        sim_rop = st.number_input("Reorder Point (ROP)", min_value=0, value=int(actual_mean), key=f"sim_rop_{tab_key}")
+    with c_sim2:
+        sim_oq = st.number_input("Order Quantity (OQ)", min_value=1, value=int(actual_mean * 2), key=f"sim_oq_{tab_key}")
+    with c_sim3:
+        sim_ob = st.number_input("Opening Balance", min_value=0, value=int(1.25 * sim_rop), key=f"sim_ob_{tab_key}")
+    with c_sim4:
+        sim_lt = st.number_input("Lead Time (Days)", min_value=1, value=int(T), key=f"sim_lt_{tab_key}")
+
+    # Simulation Logic
+    phys_inv = sim_ob
+    pipe_inv = 0
+    pending_orders = {} 
+    
+    dates = daily_demand.index if isinstance(daily_demand.index, pd.DatetimeIndex) else np.arange(1, len(daily_demand) + 1)
+    
+    sim_results = {
+        "Day/Date": [], "Demand": [], "Physical Inventory": [], 
+        "Total Inventory": [], "Pipeline Inventory": [], 
+        "Orders Placed": [], "Orders Received": [], 
+        "Reorder Flag": [], "Stockout Flag": [], "Unmet Demand": []
+    }
+    
+    for i, demand in enumerate(daily_demand):
+        # 1. Receive Orders
+        received_today = pending_orders.get(i, 0)
+        phys_inv += received_today
+        pipe_inv -= received_today
+        
+        # 2. Fulfill Demand
+        met = min(phys_inv, demand)
+        phys_inv -= met
+        unmet = demand - met
+        
+        stockout = 1 if phys_inv == 0 and demand > 0 else 0
+        
+        tot_inv = phys_inv + pipe_inv
+        
+        # 3. Check ROP
+        placed_today = 0
+        reorder_flag = 0
+        if tot_inv <= sim_rop:
+            placed_today = sim_oq
+            pipe_inv += placed_today
+            arrival_day = i + sim_lt
+            pending_orders[arrival_day] = pending_orders.get(arrival_day, 0) + placed_today
+            reorder_flag = 1
+            tot_inv = phys_inv + pipe_inv
+            
+        sim_results["Day/Date"].append(dates[i])
+        sim_results["Demand"].append(demand)
+        sim_results["Physical Inventory"].append(phys_inv)
+        sim_results["Total Inventory"].append(tot_inv)
+        sim_results["Pipeline Inventory"].append(pipe_inv)
+        sim_results["Orders Placed"].append(placed_today)
+        sim_results["Orders Received"].append(received_today)
+        sim_results["Reorder Flag"].append(reorder_flag)
+        sim_results["Stockout Flag"].append(stockout)
+        sim_results["Unmet Demand"].append(unmet)
+        
+    df_sim = pd.DataFrame(sim_results)
+    
+    # KPI Calculations
+    total_dem = df_sim["Demand"].sum()
+    total_unmet = df_sim["Unmet Demand"].sum()
+    fill_rate = 100 * (1 - total_unmet / total_dem) if total_dem > 0 else 100.0
+    
+    st.markdown("**Simulation KPIs**")
+    c_k1, c_k2, c_k3, c_k4, c_k5 = st.columns(5)
+    c_k1.metric("Avg Physical Inventory", round(df_sim["Physical Inventory"].mean(), 1))
+    c_k2.metric("Min Physical Inventory", round(df_sim["Physical Inventory"].min(), 1))
+    c_k3.metric("Max Physical Inventory", round(df_sim["Physical Inventory"].max(), 1))
+    c_k4.metric("Stockout Days", int(df_sim["Stockout Flag"].sum()))
+    c_k5.metric("Fill Rate", f"{round(fill_rate, 2)}%")
+    
+    # Plotting
+    show_pipeline = st.checkbox("Include Pipeline & Total Inventory", value=False, key=f"show_pipe_{tab_key}")
+    
+    fig_sim = go.Figure()
+    
+    fig_sim.add_trace(go.Scatter(x=df_sim["Day/Date"], y=df_sim["Physical Inventory"], mode='lines', name='Physical Inventory', line=dict(color='#3399ff', width=2)))
+    
+    if show_pipeline:
+        fig_sim.add_trace(go.Scatter(x=df_sim["Day/Date"], y=df_sim["Total Inventory"], mode='lines', name='Total Inventory', line=dict(color='rgba(173, 216, 230, 0.6)', width=2, dash='dash')))
+        
+    fig_sim.add_trace(go.Scatter(x=df_sim["Day/Date"], y=[sim_rop]*len(df_sim), mode='lines', name='Reorder Point (ROP)', line=dict(color='orange', width=2, dash='dot')))
+    
+    reorders = df_sim[df_sim["Reorder Flag"] == 1]
+    if not reorders.empty:
+        fig_sim.add_trace(go.Scatter(x=reorders["Day/Date"], y=reorders["Physical Inventory"], mode='markers', name='Reorder Placed', marker=dict(symbol='triangle-up', color='green', size=12)))
+        
+    stockouts = df_sim[df_sim["Stockout Flag"] == 1]
+    if not stockouts.empty:
+        fig_sim.add_trace(go.Scatter(x=stockouts["Day/Date"], y=stockouts["Physical Inventory"], mode='markers', name='Stockout', marker=dict(symbol='triangle-down', color='red', size=12)))
+        
+    fig_sim.update_layout(title="Inventory Simulation over Time", xaxis_title="Timeline", yaxis_title="Units")
+    fig_sim = style_plotly_fig(fig_sim)
+    st.plotly_chart(fig_sim, use_container_width=True)
+    
+    # Tables
+    with st.expander("View Daily Simulation Data"):
+        st.dataframe(df_sim.drop(columns=["Reorder Flag", "Stockout Flag", "Unmet Demand"]), use_container_width=True)
+        
+    st.markdown("**Closing Balance Frequency Distribution**")
+    
+    cb_num_bins = 10
+    counts_cb, bin_edges_cb = np.histogram(df_sim["Physical Inventory"], bins=cb_num_bins)
+    cb_freq_df = pd.DataFrame({
+        "Bin Start": np.round(bin_edges_cb[:-1], 2),
+        "Bin End": np.round(bin_edges_cb[1:], 2),
+        "Absolute Count": counts_cb
+    })
+    
+    total_cb = counts_cb.sum()
+    if total_cb > 0:
+        cb_freq_df["% of Total"] = np.round((cb_freq_df["Absolute Count"] / total_cb) * 100, 2)
+        cb_freq_df["Cumulative %"] = np.round(cb_freq_df["% of Total"].cumsum(), 2)
+    else:
+        cb_freq_df["% of Total"] = 0.0
+        cb_freq_df["Cumulative %"] = 0.0
+        
+    cb_freq_df["% of Total"] = cb_freq_df["% of Total"].astype(str) + "%"
+    cb_freq_df["Cumulative %"] = cb_freq_df["Cumulative %"].astype(str) + "%"
+    
+    st.dataframe(cb_freq_df, use_container_width=True)
+
 
 # ------------------------------------------------
 # Main Page Layout & Tabs
