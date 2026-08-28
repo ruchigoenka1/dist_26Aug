@@ -225,7 +225,7 @@ def demand_analysis_ui(daily_demand, tab_key):
     # ------------------------------------------------
     # Section 3: Service Level Simulator
     # ------------------------------------------------
-    st.subheader("Section 3: Service Level Diagnostics")
+    st.subheader(f"Section 3: Service Level Diagnostics ({T} Days)")
     
     c_sl1, c_sl2 = st.columns(2)
     
@@ -233,13 +233,13 @@ def demand_analysis_ui(daily_demand, tab_key):
         st.markdown("**Calculate Inventory Target**")
         target_sl = st.slider("Target Service Level (%)", min_value=50.0, max_value=99.9, value=95.0, step=0.1, key=f"sl_target_{tab_key}")
         required_inv = np.percentile(simulated_forecast, target_sl)
-        st.metric(f"Inventory Required for {target_sl}%", round(required_inv, 0))
+        st.metric(f"Inventory Required for {target_sl}% ({T} Days)", round(required_inv, 0))
         
     with c_sl2:
         st.markdown("**Audit Achieved Service Level**")
         inv_amount = st.number_input("Test Inventory Amount", min_value=0.0, value=float(round(forecast_avg_T,0)), key=f"inv_amount_{tab_key}")
         achieved_sl = stats.percentileofscore(simulated_forecast, inv_amount)
-        st.metric(f"Achieved Service Level", f"{round(achieved_sl, 1)}%")
+        st.metric(f"Achieved Service Level ({T} Days)", f"{round(achieved_sl, 1)}%")
 
 
 # ------------------------------------------------
