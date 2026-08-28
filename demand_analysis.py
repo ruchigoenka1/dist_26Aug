@@ -4,6 +4,9 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy import stats
 
+# ------------------------------------------------
+# Minimalist Chart Styling (Dark Theme)
+# ------------------------------------------------
 def style_plotly_fig(fig):
     fig.update_layout(
         plot_bgcolor='#0E1117',
@@ -16,7 +19,9 @@ def style_plotly_fig(fig):
     fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
     return fig
 
-# Core analysis UI function applied to both tabs
+# ------------------------------------------------
+# Core Analysis UI (Used in both tabs)
+# ------------------------------------------------
 def demand_analysis_ui(daily_demand, tab_key):
     if len(daily_demand) == 0:
         st.warning("No demand data available.")
@@ -55,14 +60,14 @@ def demand_analysis_ui(daily_demand, tab_key):
         st.info("Demand is constant. No distribution to show.")
         return
         
-    # Using a default of 10 bins instead of requiring user input
+    # Using a default of 10 bins automatically
     num_bins = 10
     
     fig1 = go.Figure()
     fig1.add_trace(go.Histogram(
         x=rolling_demand,
         nbinsx=num_bins,
-        marker_color='rgba(51, 153, 255, 0.1)', # Transparent light blue fill
+        marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
         marker_line=dict(color='#3399ff', width=2), # Solid light blue outline
         name="Frequency"
     ))
@@ -106,7 +111,7 @@ def demand_analysis_ui(daily_demand, tab_key):
     fig2.add_trace(go.Histogram(
         x=simulated_forecast,
         nbinsx=30,
-        marker_color='rgba(51, 153, 255, 0.1)', 
+        marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
         marker_line=dict(color='#3399ff', width=2),
         name="Forecast Frequency"
     ))
@@ -145,8 +150,9 @@ def demand_analysis_ui(daily_demand, tab_key):
         achieved_sl = stats.percentileofscore(simulated_forecast, inv_amount)
         st.metric(f"Achieved Service Level", f"{round(achieved_sl, 1)}%")
 
+
 # ------------------------------------------------
-# Main Layout
+# Main Page Layout & Tabs
 # ------------------------------------------------
 st.title("Demand Analysis & Forecasting")
 
