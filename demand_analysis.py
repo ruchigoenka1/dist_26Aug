@@ -6,14 +6,14 @@ from scipy import stats
 
 def style_plotly_fig(fig):
     fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(color='black'),
-        title_font=dict(color='black'),
+        plot_bgcolor='#0E1117',
+        paper_bgcolor='#0E1117',
+        font=dict(color='white'),
+        title_font=dict(color='white'),
         margin=dict(l=20, r=20, t=40, b=20)
     )
-    fig.update_xaxes(showline=True, linewidth=1, linecolor='black', gridcolor='#e6e6e6')
-    fig.update_yaxes(showline=True, linewidth=1, linecolor='black', gridcolor='#e6e6e6', rangemode="tozero")
+    fig.update_xaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
+    fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
     return fig
 
 # Core analysis UI function applied to both tabs
@@ -55,27 +55,26 @@ def demand_analysis_ui(daily_demand, tab_key):
         st.info("Demand is constant. No distribution to show.")
         return
         
-    bin_size = st.number_input("Select Bin Size", min_value=0.1, max_value=float(data_range), value=float(data_range/10), key=f"bin_{tab_key}")
-    
-    bins = np.arange(actual_min, actual_max + bin_size, bin_size)
+    # Using a default of 10 bins instead of requiring user input
+    num_bins = 10
     
     fig1 = go.Figure()
     fig1.add_trace(go.Histogram(
         x=rolling_demand,
-        xbins=dict(start=actual_min, end=actual_max, size=bin_size),
-        marker_color='rgba(0, 82, 204, 0.05)', # Transparent blue fill
-        marker_line=dict(color='#0052cc', width=2), # Solid blue outline
+        nbinsx=num_bins,
+        marker_color='rgba(51, 153, 255, 0.1)', # Transparent light blue fill
+        marker_line=dict(color='#3399ff', width=2), # Solid light blue outline
         name="Frequency"
     ))
     fig1.update_layout(title=f"Demand Frequency over {T} Days", xaxis_title="Demand Quantity", yaxis_title="Absolute Count")
     fig1 = style_plotly_fig(fig1)
     st.plotly_chart(fig1, use_container_width=True)
     
-    # Absolute Frequency Table
-    counts, bin_edges = np.histogram(rolling_demand, bins=bins)
+    # Absolute Frequency Table using the automated bins
+    counts, bin_edges = np.histogram(rolling_demand, bins=num_bins)
     freq_df = pd.DataFrame({
-        "Bin Start": bin_edges[:-1],
-        "Bin End": bin_edges[1:],
+        "Bin Start": np.round(bin_edges[:-1], 2),
+        "Bin End": np.round(bin_edges[1:], 2),
         "Absolute Count": counts
     })
     st.dataframe(freq_df, use_container_width=True)
@@ -107,8 +106,8 @@ def demand_analysis_ui(daily_demand, tab_key):
     fig2.add_trace(go.Histogram(
         x=simulated_forecast,
         nbinsx=30,
-        marker_color='rgba(0, 82, 204, 0.05)', 
-        marker_line=dict(color='#0052cc', width=2),
+        marker_color='rgba(51, 153, 255, 0.1)', 
+        marker_line=dict(color='#3399ff', width=2),
         name="Forecast Frequency"
     ))
     fig2.update_layout(title=f"Forecasted Demand Distribution ({T} Days)", xaxis_title="Demand Quantity", yaxis_title="Absolute Count")
