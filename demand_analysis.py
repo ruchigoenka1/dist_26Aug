@@ -114,26 +114,58 @@ def demand_analysis_ui(daily_demand, tab_key):
     
     st.info(f"Scaled **{T}-Day** Forecast Average: {round(forecast_avg_T, 2)} | Scaled Std Dev: {round(forecast_std_T, 2)}")
     
-    # Generate bounded normal distribution representation
+   # Generate bounded normal distribution representation
     np.random.seed(42)
     simulated_forecast = np.maximum(0, np.random.normal(forecast_avg_T, forecast_std_T, 10000))
     
-    # Input to manually set the number of bins for the forecast
-    forecast_bins = st.number_input("Number of Bins for Forecast", min_value=5, max_value=100, value=30, step=1, key=f"f_bins_{tab_key}")
+    forecast_min = simulated_forecast.min()
+    forecast_max = simulated_forecast.max()
+    forecast_range = forecast_max - forecast_min
+    
+    # ------------------------------------------------
+    # Forecast Binning Options
+    # ------------------------------------------------
+    bin_method = st.radio("Choose Binning Method for Forecast:", ["Number of Bins", "Bin Width"], horizontal=True, key=f"f_bin_method_{tab_key}")
     
     fig2 = go.Figure()
-    fig2.add_trace(go.Histogram(
-        x=simulated_forecast,
-        nbinsx=forecast_bins,
-        marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
-        marker_line=dict(color='#3399ff', width=2),
-        name="Forecast Frequency"
-    ))
+    
+    if bin_method == "Number of Bins":
+        forecast_bins = st.number_input("Number of Bins", min_value=5, max_value=200, value=30, step=1, key=f"f_bins_count_{tab_key}")
+        
+        fig2.add_trace(go.Histogram(
+            x=simulated_forecast,
+            nbinsx=forecast_bins,
+            marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
+            marker_line=dict(color='#3399ff', width=2),
+            name="Forecast Frequency"
+        ))
+        
+        # Calculate table edges based on number of bins
+        counts_f, edges_f = np.histogram(simulated_forecast, bins=forecast_bins)
+        
+    else:
+        # Prevent division by zero if forecast is entirely flat
+        max_width = max(1, int(forecast_range))
+        default_width = max(1, int(forecast_range / 30)) if forecast_range >= 30 else 1
+        
+        bin_width = st.number_input("Bin Width", min_value=1, max_value=max_width, value=default_width, step=1, key=f"f_bins_width_{tab_key}")
+        
+        fig2.add_trace(go.Histogram(
+            x=simulated_forecast,
+            xbins=dict(start=forecast_min, end=forecast_max + bin_width, size=bin_width),
+            marker_color='rgba(173, 216, 230, 0.8)', 
+            marker_line=dict(color='#3399ff', width=2),
+            name="Forecast Frequency"
+        ))
+        
+        # Calculate table edges based on exact bin width
+        bins_array = np.arange(forecast_min, forecast_max + bin_width + 1, bin_width)
+        counts_f, edges_f = np.histogram(simulated_forecast, bins=bins_array)
+
     fig2.update_layout(title=f"Forecasted Demand Distribution ({T} Days)", xaxis_title="Demand Quantity", yaxis_title="Absolute Count")
     fig2 = style_plotly_fig(fig2)
     st.plotly_chart(fig2, use_container_width=True)
     
-    counts_f, edges_f = np.histogram(simulated_forecast, bins=forecast_bins)
     forecast_freq_df = pd.DataFrame({
         "Bin Start": np.round(edges_f[:-1], 2),
         "Bin End": np.round(edges_f[1:], 2),
@@ -144,6 +176,8 @@ def demand_analysis_ui(daily_demand, tab_key):
         st.dataframe(forecast_freq_df, use_container_width=True)
         
     st.divider()
+
+    
     # ------------------------------------------------
     # Section 3: Service Level Simulator
     # ------------------------------------------------
