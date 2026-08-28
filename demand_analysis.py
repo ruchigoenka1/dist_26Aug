@@ -60,13 +60,23 @@ def demand_analysis_ui(daily_demand, tab_key):
         st.info("Demand is constant. No distribution to show.")
         return
         
-    # Using a default of 10 bins automatically
-    num_bins = 10
+    # Re-added manual bin size control, forced to integers
+    max_bin_size = max(1, int(data_range))
+    default_bin_size = max(1, int(data_range / 10))
+    
+    bin_size = st.number_input(
+        "Select Bin Size (Width)", 
+        min_value=1, 
+        max_value=max_bin_size, 
+        value=default_bin_size, 
+        step=1, 
+        key=f"bin_size_{tab_key}"
+    )
     
     fig1 = go.Figure()
     fig1.add_trace(go.Histogram(
         x=rolling_demand,
-        nbinsx=num_bins,
+        xbins=dict(start=actual_min, end=actual_max + bin_size, size=bin_size),
         marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
         marker_line=dict(color='#3399ff', width=2), # Solid light blue outline
         name="Frequency"
@@ -75,8 +85,9 @@ def demand_analysis_ui(daily_demand, tab_key):
     fig1 = style_plotly_fig(fig1)
     st.plotly_chart(fig1, use_container_width=True)
     
-    # Absolute Frequency Table using the automated bins
-    counts, bin_edges = np.histogram(rolling_demand, bins=num_bins)
+    # Absolute Frequency Table using the user-defined bins
+    bins_array = np.arange(actual_min, actual_max + bin_size + 1, bin_size)
+    counts, bin_edges = np.histogram(rolling_demand, bins=bins_array)
     freq_df = pd.DataFrame({
         "Bin Start": np.round(bin_edges[:-1], 2),
         "Bin End": np.round(bin_edges[1:], 2),
@@ -107,10 +118,13 @@ def demand_analysis_ui(daily_demand, tab_key):
     np.random.seed(42)
     simulated_forecast = np.maximum(0, np.random.normal(forecast_avg_T, forecast_std_T, 10000))
     
+    # Input to manually set the number of bins for the forecast
+    forecast_bins = st.number_input("Number of Bins for Forecast", min_value=5, max_value=100, value=30, step=1, key=f"f_bins_{tab_key}")
+    
     fig2 = go.Figure()
     fig2.add_trace(go.Histogram(
         x=simulated_forecast,
-        nbinsx=30,
+        nbinsx=forecast_bins,
         marker_color='rgba(173, 216, 230, 0.8)', # Light pastel blue fill
         marker_line=dict(color='#3399ff', width=2),
         name="Forecast Frequency"
@@ -119,10 +133,10 @@ def demand_analysis_ui(daily_demand, tab_key):
     fig2 = style_plotly_fig(fig2)
     st.plotly_chart(fig2, use_container_width=True)
     
-    counts_f, edges_f = np.histogram(simulated_forecast, bins=30)
+    counts_f, edges_f = np.histogram(simulated_forecast, bins=forecast_bins)
     forecast_freq_df = pd.DataFrame({
-        "Bin Start": edges_f[:-1],
-        "Bin End": edges_f[1:],
+        "Bin Start": np.round(edges_f[:-1], 2),
+        "Bin End": np.round(edges_f[1:], 2),
         "Absolute Count": counts_f
     })
     
@@ -130,7 +144,6 @@ def demand_analysis_ui(daily_demand, tab_key):
         st.dataframe(forecast_freq_df, use_container_width=True)
         
     st.divider()
-    
     # ------------------------------------------------
     # Section 3: Service Level Simulator
     # ------------------------------------------------
