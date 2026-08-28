@@ -113,6 +113,16 @@ def demand_analysis_ui(daily_demand, tab_key):
         "Bin End": np.round(bin_edges[1:], 2),
         "Absolute Count": counts
     })
+    
+    # Add Percentage Columns
+    total_count_1 = freq_df["Absolute Count"].sum()
+    if total_count_1 > 0:
+        freq_df["% of Total"] = np.round((freq_df["Absolute Count"] / total_count_1) * 100, 2)
+        freq_df["Cumulative %"] = np.round(freq_df["% of Total"].cumsum(), 2)
+    else:
+        freq_df["% of Total"] = 0.0
+        freq_df["Cumulative %"] = 0.0
+        
     st.dataframe(freq_df, use_container_width=True)
     
     st.divider()
@@ -209,6 +219,15 @@ def demand_analysis_ui(daily_demand, tab_key):
         "Bin End": np.round(edges_f[1:], 2),
         "Absolute Count": counts_f
     })
+    
+    # Add Percentage Columns
+    total_count_2 = forecast_freq_df["Absolute Count"].sum()
+    if total_count_2 > 0:
+        forecast_freq_df["% of Total"] = np.round((forecast_freq_df["Absolute Count"] / total_count_2) * 100, 2)
+        forecast_freq_df["Cumulative %"] = np.round(forecast_freq_df["% of Total"].cumsum(), 2)
+    else:
+        forecast_freq_df["% of Total"] = 0.0
+        forecast_freq_df["Cumulative %"] = 0.0
     
     with st.expander("View Forecasted Frequency Table"):
         st.dataframe(forecast_freq_df, use_container_width=True)
