@@ -223,6 +223,26 @@ fig2.add_trace(go.Scatter(x=df["Date"], y=df["Net Inventory"], name="Net Invento
 
 if include_pipeline:
     fig2.add_trace(go.Scatter(x=df["Date"], y=df["Closing Net Including Pipeline"], name="Inventory Position", line=dict(color='#1f77b4', width=2)))
+
+# Add Reorder Triggers to the Net Inventory line
+reorders = df[df["New Order"] > 0]
+fig2.add_trace(go.Scatter(
+    x=reorders["Date"], 
+    y=reorders["Net Inventory"], 
+    mode="markers", 
+    name="Reorder Trigger", 
+    marker=dict(color="green", symbol="triangle-up", size=10)
+))
+
+# Add stockout markers to the Net Inventory line
+actual_stockouts = df[df["Daily Lost Sales"] > 0]
+fig2.add_trace(go.Scatter(
+    x=actual_stockouts["Date"], 
+    y=actual_stockouts["Net Inventory"], 
+    mode="markers", 
+    name="Lost Sale (Stockout)", 
+    marker=dict(color="red", symbol="triangle-up", size=10)
+))
     
 fig2.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
 fig2.add_hline(y=0, line_color="red", line_width=1) # Zero line reference
@@ -231,7 +251,6 @@ fig2 = style_plotly_fig(fig2)
 # Net inventory chart shouldn't strictly range to zero on the Y axis because it goes negative
 fig2.update_yaxes(rangemode="normal") 
 st.plotly_chart(fig2, use_container_width=True)
-
 st.divider()
 
 st.markdown("### Lost Sales (Stockouts)")
