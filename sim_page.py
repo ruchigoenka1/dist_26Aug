@@ -193,58 +193,62 @@ r4.metric("Maximum Working Capital", round(max_wc, 1))
 # ------------------------------------------------
 st.subheader("Inventory & Demand Behaviour")
 
-tab1, tab2, tab3, tab4 = st.tabs(["Physical Inventory", "Net Inventory", "Lost Sales (Stockouts)", "Active Backorders"])
+st.markdown("### Physical Inventory")
+# Graph 1: Physical Inventory (Stops at 0, only marks actual lost sales)
+fig1 = go.Figure()
+fig1.add_trace(go.Scatter(x=df["Date"], y=df["Physical Inventory"], name="Physical Inventory", line=dict(color='skyblue', width=2)))
 
-with tab1:
-    # Graph 1: Physical Inventory (Stops at 0, only marks actual lost sales)
-    fig1 = go.Figure()
-    fig1.add_trace(go.Scatter(x=df["Date"], y=df["Physical Inventory"], name="Physical Inventory", line=dict(color='skyblue', width=2)))
-    
-    reorders = df[df["New Order"] > 0]
-    fig1.add_trace(go.Scatter(x=reorders["Date"], y=reorders["Physical Inventory"], mode="markers", name="Reorder Trigger", marker=dict(color="green", symbol="triangle-up", size=10)))
-    
-    actual_stockouts = df[df["Daily Lost Sales"] > 0]
-    fig1.add_trace(go.Scatter(x=actual_stockouts["Date"], y=actual_stockouts["Physical Inventory"], mode="markers", name="Lost Sale (Stockout)", marker=dict(color="red", symbol="triangle-up", size=10)))
-    
-    fig1.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
-    
-    max_y = df["Physical Inventory"].max() * 1.2
-    fig1.add_hrect(y0=0, y1=reorder_point*0.5, fillcolor="red", opacity=0.1)
-    fig1.add_hrect(y0=reorder_point*0.5, y1=reorder_point, fillcolor="yellow", opacity=0.1)
-    fig1.add_hrect(y0=reorder_point, y1=max_y, fillcolor="green", opacity=0.05)
-    
-    fig1 = style_plotly_fig(fig1)
-    st.plotly_chart(fig1, use_container_width=True)
+reorders = df[df["New Order"] > 0]
+fig1.add_trace(go.Scatter(x=reorders["Date"], y=reorders["Physical Inventory"], mode="markers", name="Reorder Trigger", marker=dict(color="green", symbol="triangle-up", size=10)))
 
-with tab2:
-    # Graph 2: Net Inventory (Can drop below 0)
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=df["Date"], y=df["Net Inventory"], name="Net Inventory (Includes Backorders)", line=dict(color='orange', width=2)))
-    
-    if include_pipeline:
-        fig2.add_trace(go.Scatter(x=df["Date"], y=df["Closing Net Including Pipeline"], name="Inventory Position", line=dict(color='#1f77b4', width=2)))
-        
-    fig2.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
-    fig2.add_hline(y=0, line_color="red", line_width=1) # Zero line reference
-    
-    fig2 = style_plotly_fig(fig2)
-    # Net inventory chart shouldn't strictly range to zero on the Y axis because it goes negative
-    fig2.update_yaxes(rangemode="normal") 
-    st.plotly_chart(fig2, use_container_width=True)
+actual_stockouts = df[df["Daily Lost Sales"] > 0]
+fig1.add_trace(go.Scatter(x=actual_stockouts["Date"], y=actual_stockouts["Physical Inventory"], mode="markers", name="Lost Sale (Stockout)", marker=dict(color="red", symbol="triangle-up", size=10)))
 
-with tab3:
-    # Graph 3: Lost Sales (Stockout Quantity)
-    fig3 = go.Figure()
-    fig3.add_trace(go.Scatter(x=df["Date"], y=df["Daily Lost Sales"], name="Lost Sales Qty", line=dict(color='red', width=2), fill='tozeroy', fillcolor='rgba(255,0,0,0.1)'))
-    fig3 = style_plotly_fig(fig3)
-    st.plotly_chart(fig3, use_container_width=True)
+fig1.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
 
-with tab4:
-    # Graph 4: Active Backorders
-    fig4 = go.Figure()
-    fig4.add_trace(go.Scatter(x=df["Date"], y=df["Active Backorders"], name="Active Backorders", line=dict(color='#ffaa00', width=2), fill='tozeroy', fillcolor='rgba(255,170,0,0.1)'))
-    fig4 = style_plotly_fig(fig4)
-    st.plotly_chart(fig4, use_container_width=True)
+max_y = df["Physical Inventory"].max() * 1.2
+fig1.add_hrect(y0=0, y1=reorder_point*0.5, fillcolor="red", opacity=0.1)
+fig1.add_hrect(y0=reorder_point*0.5, y1=reorder_point, fillcolor="yellow", opacity=0.1)
+fig1.add_hrect(y0=reorder_point, y1=max_y, fillcolor="green", opacity=0.05)
+
+fig1 = style_plotly_fig(fig1)
+st.plotly_chart(fig1, use_container_width=True)
+
+st.divider()
+
+st.markdown("### Net Inventory")
+# Graph 2: Net Inventory (Can drop below 0)
+fig2 = go.Figure()
+fig2.add_trace(go.Scatter(x=df["Date"], y=df["Net Inventory"], name="Net Inventory (Includes Backorders)", line=dict(color='orange', width=2)))
+
+if include_pipeline:
+    fig2.add_trace(go.Scatter(x=df["Date"], y=df["Closing Net Including Pipeline"], name="Inventory Position", line=dict(color='#1f77b4', width=2)))
+    
+fig2.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
+fig2.add_hline(y=0, line_color="red", line_width=1) # Zero line reference
+
+fig2 = style_plotly_fig(fig2)
+# Net inventory chart shouldn't strictly range to zero on the Y axis because it goes negative
+fig2.update_yaxes(rangemode="normal") 
+st.plotly_chart(fig2, use_container_width=True)
+
+st.divider()
+
+st.markdown("### Lost Sales (Stockouts)")
+# Graph 3: Lost Sales (Stockout Quantity)
+fig3 = go.Figure()
+fig3.add_trace(go.Scatter(x=df["Date"], y=df["Daily Lost Sales"], name="Lost Sales Qty", line=dict(color='red', width=2), fill='tozeroy', fillcolor='rgba(255,0,0,0.1)'))
+fig3 = style_plotly_fig(fig3)
+st.plotly_chart(fig3, use_container_width=True)
+
+st.divider()
+
+st.markdown("### Active Backorders")
+# Graph 4: Active Backorders
+fig4 = go.Figure()
+fig4.add_trace(go.Scatter(x=df["Date"], y=df["Active Backorders"], name="Active Backorders", line=dict(color='#ffaa00', width=2), fill='tozeroy', fillcolor='rgba(255,170,0,0.1)'))
+fig4 = style_plotly_fig(fig4)
+st.plotly_chart(fig4, use_container_width=True)
 
 # ------------------------------------------------
 # Simulation Data Table
