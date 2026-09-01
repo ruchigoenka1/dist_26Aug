@@ -58,7 +58,7 @@ sim_page = st.Page("sim_page.py", title="Inventory Simulator", icon="⚙️")
 plot_page = st.Page("plot_page.py", title="Closing Balance Plotter", icon="📈")
 compare_page = st.Page("compare_page.py", title="Historical Comparison", icon="⚖️")
 demand_page = st.Page("demand_analysis.py", title="Demand Analysis", icon="📊")
-order_quantity_page = st.Page("order_quantity.py", title="Demand Analysis", icon="📦")
+order_quantity_page = st.Page("order_quantity.py", title="Order Qunatity", icon="📦")
 
 
 # --- New Policy Simulators ---
