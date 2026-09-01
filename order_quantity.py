@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Order Quantity Optimization", layout="wide")
 
-# Styling function
+# Styling function for dark mode
 def style_plotly_fig(fig):
     fig.update_layout(
         plot_bgcolor='#0E1117', 
@@ -46,7 +46,7 @@ with c3:
     std_demand = st.number_input("Demand Standard Deviation", value=15.0, step=1.0)
     lead_time = st.number_input("Lead Time (Days)", value=5, step=1)
 
-# EOQ Math
+# EOQ & ROP Math
 annual_demand = avg_demand * 365
 effective_unit_cost = unit_value + var_order_cost
 annual_holding_rate = (cost_of_capital + other_holding) / 100.0
@@ -54,10 +54,17 @@ H = effective_unit_cost * annual_holding_rate
 S = fixed_order_cost
 
 eoq = 0
-if H > 0:
+total_eoq_cost = 0
+if H > 0 and S > 0:
     eoq = np.sqrt((2 * annual_demand * S) / H)
+    # Total deterministic cost = Holding cost + Fixed Ordering Cost + Variable Ordering Cost
+    total_eoq_cost = (eoq / 2) * H + (annual_demand / eoq) * S + (annual_demand * var_order_cost)
 
-st.info(f"**Deterministic EOQ:** {int(eoq)} Units (Assumes zero variation and smooth annual demand of {int(annual_demand):,} units)")
+# Calculate recommended ROP assuming a standard 95% service level (Z = 1.645)
+recommended_rop = (avg_demand * lead_time) + (1.645 * std_demand * np.sqrt(lead_time))
+
+st.success(f"✨ **Deterministic EOQ:** {int(eoq)} Units &nbsp; | &nbsp; **Recommended ROP:** {int(recommended_rop)} Units &nbsp; | &nbsp; **Total Annual Cost:** ${total_eoq_cost:,.2f}")
+st.caption("Note: The Total Annual Cost above assumes zero demand variation and perfectly smooth consumption over 365 days.")
 
 st.divider()
 
@@ -71,7 +78,7 @@ sc1, sc2, sc3, sc4 = st.columns(4)
 with sc1:
     sim_order_qty = st.number_input("Simulation Order Quantity", value=int(eoq) if eoq > 0 else 500, step=50)
 with sc2:
-    sim_rop = st.number_input("Reorder Point (ROP)", value=int(avg_demand * lead_time + (1.645 * std_demand * np.sqrt(lead_time))), step=10)
+    sim_rop = st.number_input("Reorder Point (ROP)", value=int(recommended_rop), step=10)
 with sc3:
     num_runs = st.number_input("Number of Simulation Runs", value=200, min_value=10, max_value=1000, step=50, help="Higher runs provide better distributions but take longer to calculate.")
 with sc4:
@@ -86,7 +93,12 @@ if st.button("🚀 Run Cost Simulation", use_container_width=True, type="primary
         # Pre-generate matrix of demand profiles for performance
         demand_matrix = np.clip(np.random.normal(avg_demand, std_demand, (num_runs, 365)), 0, None).round()
         
-        sim_results = []
+        sim_results = {
+            "Total Cost": [],
+            "Holding Cost": [],
+            "Fixed Ordering Cost": [],
+            "Variable Ordering Cost": []
+        }
         
         for run in range(num_runs):
             demand_profile = demand_matrix[run]
@@ -123,16 +135,21 @@ if st.button("🚀 Run Cost Simulation", use_container_width=True, type="primary
             run_var_ordering = (orders_placed * sim_order_qty) * var_order_cost
             total_annual_cost = run_holding_cost + run_fixed_ordering + run_var_ordering
             
-            sim_results.append(total_annual_cost)
+            sim_results["Total Cost"].append(total_annual_cost)
+            sim_results["Holding Cost"].append(run_holding_cost)
+            sim_results["Fixed Ordering Cost"].append(run_fixed_ordering)
+            sim_results["Variable Ordering Cost"].append(run_var_ordering)
             
         st.session_state.sim_costs = sim_results
+        st.session_state.det_cost = total_eoq_cost
 
 # --- Display Results ---
 if "sim_costs" in st.session_state:
-    costs = st.session_state.sim_costs
-    min_cost = min(costs)
-    max_cost = max(costs)
-    avg_cost = np.mean(costs)
+    results = st.session_state.sim_costs
+    costs = results["Total Cost"]
+    det_cost = st.session_state.det_cost
+    
+    min_cost, max_cost, avg_cost = min(costs), max(costs), np.mean(costs)
     
     st.markdown("### Total Annual Cost Distribution")
     metric_c1, metric_c2, metric_c3 = st.columns(3)
@@ -141,29 +158,47 @@ if "sim_costs" in st.session_state:
     metric_c3.metric("Max Simulated Cost", f"${max_cost:,.0f}")
     
     # Histogram Control
-    bin_width = st.slider("Adjust Histogram Bin Width ($)", min_value=100, max_value=5000, value=1000, step=100)
+    bin_width = st.slider("Adjust Total Cost Histogram Bin Width ($)", min_value=100, max_value=5000, value=1000, step=100)
     
-    # Create specific bin edges based on user width
     b_min = np.floor(min_cost / bin_width) * bin_width
     b_max = np.ceil(max_cost / bin_width) * bin_width
     bins = np.arange(b_min, b_max + bin_width, bin_width)
     
-    fig = go.Figure()
-    fig.add_trace(go.Histogram(
-        x=costs, 
-        xbins=dict(start=b_min, end=b_max, size=bin_width),
-        marker_color='skyblue',
-        opacity=0.8
-    ))
+    # Plot Total Cost
+    fig_total = go.Figure()
+    fig_total.add_trace(go.Histogram(x=costs, xbins=dict(start=b_min, end=b_max, size=bin_width), marker_color='skyblue', opacity=0.8, name="Simulated Runs"))
     
-    fig.update_layout(
-        xaxis_title="Total Annual Cost ($)", 
-        yaxis_title="Frequency (Number of Runs)",
-        bargap=0.05
-    )
-    fig = style_plotly_fig(fig)
-    st.plotly_chart(fig, use_container_width=True)
+    # Add vertical line for Deterministic Cost
+    fig_total.add_vline(x=det_cost, line_dash="dash", line_color="orange", annotation_text="Deterministic Cost", annotation_font_color="orange", annotation_position="top right")
     
+    fig_total.update_layout(xaxis_title="Total Annual Cost ($)", yaxis_title="Frequency", bargap=0.05)
+    st.plotly_chart(style_plotly_fig(fig_total), use_container_width=True)
+    
+    st.divider()
+    
+    # Plot Broken Down Costs
+    st.markdown("### Cost Component Distributions")
+    st.write("Analyze how variability impacts individual cost drivers across the simulated years.")
+    
+    hc_col, fc_col, vc_col = st.columns(3)
+    
+    with hc_col:
+        fig_hc = go.Figure(go.Histogram(x=results["Holding Cost"], marker_color='#1f77b4', opacity=0.8))
+        fig_hc.update_layout(title="Holding Cost", xaxis_title="Cost ($)", yaxis_title="Frequency", bargap=0.05, height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(style_plotly_fig(fig_hc), use_container_width=True)
+        
+    with fc_col:
+        fig_fc = go.Figure(go.Histogram(x=results["Fixed Ordering Cost"], marker_color='#ff7f0e', opacity=0.8))
+        fig_fc.update_layout(title="Fixed Ordering Cost", xaxis_title="Cost ($)", yaxis_title="Frequency", bargap=0.05, height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(style_plotly_fig(fig_fc), use_container_width=True)
+        
+    with vc_col:
+        fig_vc = go.Figure(go.Histogram(x=results["Variable Ordering Cost"], marker_color='#2ca02c', opacity=0.8))
+        fig_vc.update_layout(title="Var. Ordering Cost", xaxis_title="Cost ($)", yaxis_title="Frequency", bargap=0.05, height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(style_plotly_fig(fig_vc), use_container_width=True)
+
+    st.divider()
+
     # Frequency Table Generation
     counts, edges = np.histogram(costs, bins=bins)
     freq_df = pd.DataFrame({
@@ -183,5 +218,5 @@ if "sim_costs" in st.session_state:
     freq_df["% of Total"] = freq_df["% of Total"].astype(str) + "%"
     freq_df["Cumulative %"] = freq_df["Cumulative %"].astype(str) + "%"
     
-    st.markdown("### Cost Frequency Distribution Table")
+    st.markdown("### Total Cost Frequency Distribution Table")
     st.dataframe(freq_df.style.format({"Bin Start ($)": "{:,.0f}", "Bin End ($)": "{:,.0f}"}), use_container_width=True, hide_index=True)
