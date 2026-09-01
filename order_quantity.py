@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from scipy.stats import norm
 
 st.set_page_config(page_title="Order Quantity Optimization", layout="wide")
 
@@ -41,10 +42,11 @@ with c2:
     unit_value = st.number_input("Base Unit Value ($)", value=100.0, step=10.0)
 
 with c3:
-    st.subheader("Demand Profile")
+    st.subheader("Demand Profile & Policy")
     avg_demand = st.number_input("Average Daily Demand", value=50.0, step=5.0)
     std_demand = st.number_input("Demand Standard Deviation", value=15.0, step=1.0)
     lead_time = st.number_input("Lead Time (Days)", value=5, step=1)
+    target_service_level = st.slider("Target Service Level (%)", min_value=50.0, max_value=99.9, value=95.0, step=0.1)
 
 # EOQ & ROP Math
 annual_demand = avg_demand * 365
@@ -60,10 +62,11 @@ if H > 0 and S > 0:
     # Total deterministic cost = Holding cost + Fixed Ordering Cost + Variable Ordering Cost
     total_eoq_cost = (eoq / 2) * H + (annual_demand / eoq) * S + (annual_demand * var_order_cost)
 
-# Calculate recommended ROP assuming a standard 95% service level (Z = 1.645)
-recommended_rop = (avg_demand * lead_time) + (1.645 * std_demand * np.sqrt(lead_time))
+# Calculate recommended ROP dynamically based on chosen service level
+z_score = norm.ppf(target_service_level / 100.0)
+recommended_rop = (avg_demand * lead_time) + (z_score * std_demand * np.sqrt(lead_time))
 
-st.success(f"✨ **Deterministic EOQ:** {int(eoq)} Units &nbsp; | &nbsp; **Recommended ROP:** {int(recommended_rop)} Units &nbsp; | &nbsp; **Total Annual Cost:** ${total_eoq_cost:,.2f}")
+st.success(f"✨ **Deterministic EOQ:** {int(eoq)} Units &nbsp; | &nbsp; **Recommended ROP ({target_service_level}%):** {int(recommended_rop)} Units &nbsp; | &nbsp; **Total Annual Cost:** ${total_eoq_cost:,.2f}")
 st.caption("Note: The Total Annual Cost above assumes zero demand variation and perfectly smooth consumption over 365 days.")
 
 st.divider()
