@@ -59,5 +59,10 @@ plot_page = st.Page("plot_page.py", title="Closing Balance Plotter", icon="📈"
 compare_page = st.Page("compare_page.py", title="Historical Comparison", icon="⚖️")
 demand_page = st.Page("demand_analysis.py", title="Demand Analysis", icon="📊")
 
-pg = st.navigation([sim_page, plot_page, compare_page, demand_page])
+# --- New Policy Simulators ---
+continuous_page = st.Page("continuous_review.py", title="Continuous Review", icon="♾️")
+periodic_page = st.Page("periodic_review.py", title="Periodic Review", icon="📅")
+
+
+pg = st.navigation([sim_page, plot_page, compare_page, demand_page, continuous_page, periodic_page])
 pg.run()
