@@ -1,3 +1,76 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from scipy.stats import norm
+
+st.set_page_config(page_title="Order Quantity Optimization", layout="wide")
+
+# Styling function for dark mode
+def style_plotly_fig(fig):
+    fig.update_layout(
+        plot_bgcolor='#0E1117', 
+        paper_bgcolor='#0E1117',
+        font=dict(color='white'),
+        title_font=dict(color='white'),
+        legend=dict(font=dict(color='white'), orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    fig.update_xaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b')
+    fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
+    return fig
+
+st.title("Order Quantity & Cost Simulation")
+st.markdown("Calculate the theoretical Economic Order Quantity (EOQ) under deterministic conditions, then simulate real-world cost distributions resulting from demand variability.")
+
+# =====================================================================
+# SECTION 1: Inputs & Deterministic EOQ
+# =====================================================================
+st.header("1. Cost Parameters & EOQ Calculation")
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    st.subheader("Ordering Costs")
+    fixed_order_cost = st.number_input("Fixed Cost Per Order ($)", value=500.0, step=50.0)
+    var_order_cost = st.number_input("Variable Cost Per Piece ($)", value=2.0, step=0.5, help="E.g., per-unit freight or handling.")
+
+with c2:
+    st.subheader("Holding Costs")
+    cost_of_capital = st.number_input("Cost of Capital (%)", value=12.0, step=1.0)
+    other_holding = st.number_input("Other Holding Costs (%)", value=8.0, step=1.0, help="E.g., storage, insurance, shrinkage.")
+    unit_value = st.number_input("Base Unit Value ($)", value=100.0, step=10.0)
+
+with c3:
+    st.subheader("Demand Profile & Policy")
+    avg_demand = st.number_input("Average Daily Demand", value=50.0, step=5.0)
+    std_demand = st.number_input("Demand Standard Deviation", value=15.0, step=1.0)
+    lead_time = st.number_input("Lead Time (Days)", value=5, step=1)
+    target_service_level = st.slider("Target Service Level (%)", min_value=50.0, max_value=99.9, value=95.0, step=0.1)
+
+# EOQ & ROP Math
+annual_demand = avg_demand * 365
+effective_unit_cost = unit_value + var_order_cost
+annual_holding_rate = (cost_of_capital + other_holding) / 100.0
+H = effective_unit_cost * annual_holding_rate
+S = fixed_order_cost
+
+eoq = 0
+total_eoq_cost = 0
+if H > 0 and S > 0:
+    eoq = np.sqrt((2 * annual_demand * S) / H)
+    # Total deterministic cost = Holding cost + Fixed Ordering Cost + Variable Ordering Cost
+    total_eoq_cost = (eoq / 2) * H + (annual_demand / eoq) * S + (annual_demand * var_order_cost)
+
+# Calculate recommended ROP dynamically based on chosen service level
+z_score = norm.ppf(target_service_level / 100.0)
+recommended_rop = (avg_demand * lead_time) + (z_score * std_demand * np.sqrt(lead_time))
+
+st.success(f"✨ **Deterministic EOQ:** {int(eoq)} Units &nbsp; | &nbsp; **Recommended ROP ({target_service_level}%):** {int(recommended_rop)} Units &nbsp; | &nbsp; **Total Annual Cost:** ${total_eoq_cost:,.2f}")
+st.caption("Note: The Total Annual Cost above assumes zero demand variation and perfectly smooth consumption over 365 days.")
+
+st.divider()
+
 # =====================================================================
 # SECTION 2: Stochastic Simulation & Policy Comparison
 # =====================================================================
