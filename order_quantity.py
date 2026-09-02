@@ -6,6 +6,15 @@ from scipy.stats import norm
 
 st.set_page_config(page_title="Order Quantity Optimization", layout="wide")
 
+# Custom CSS to reduce metric font size and prevent text clipping
+st.markdown("""
+<style>
+[data-testid="stMetricValue"] {
+    font-size: 1.4rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Styling function for dark mode
 def style_plotly_fig(fig):
     fig.update_layout(
@@ -59,10 +68,8 @@ eoq = 0
 total_eoq_cost = 0
 if H > 0 and S > 0:
     eoq = np.sqrt((2 * annual_demand * S) / H)
-    # Total deterministic cost = Holding cost + Fixed Ordering Cost + Variable Ordering Cost
     total_eoq_cost = (eoq / 2) * H + (annual_demand / eoq) * S + (annual_demand * var_order_cost)
 
-# Calculate recommended ROP dynamically based on chosen service level
 z_score = norm.ppf(target_service_level / 100.0)
 recommended_rop = (avg_demand * lead_time) + (z_score * std_demand * np.sqrt(lead_time))
 
@@ -97,7 +104,6 @@ if st.button("🚀 Run Comparative Simulation", use_container_width=True, type="
         sim_results_custom = {"Total Cost": [], "Holding Cost": [], "Fixed Ordering Cost": [], "Variable Ordering Cost": []}
         sim_results_eoq = {"Total Cost": []}
         
-        # Helper function to run a single year's simulation logic
         def simulate_year(qty_to_order):
             inventory = sim_rop + qty_to_order
             pipeline = []
@@ -127,15 +133,12 @@ if st.button("🚀 Run Comparative Simulation", use_container_width=True, type="
             vc = (orders * qty_to_order) * var_order_cost
             return hc + fc + vc, hc, fc, vc
 
-        # Run loops
         for run in range(num_runs):
             demand_profile = demand_matrix[run]
             
-            # Baseline EOQ Run
             tc_eoq, _, _, _ = simulate_year(max(1, int(eoq)))
             sim_results_eoq["Total Cost"].append(tc_eoq)
             
-            # Custom Qty Run
             tc_cust, hc_cust, fc_cust, vc_cust = simulate_year(custom_order_qty)
             sim_results_custom["Total Cost"].append(tc_cust)
             sim_results_custom["Holding Cost"].append(hc_cust)
@@ -160,6 +163,16 @@ if "sim_custom" in st.session_state:
     metric_c1.metric("Avg Cost (Simulated EOQ)", f"${avg_eoq_cost:,.0f}")
     metric_c2.metric("Avg Cost (Custom Qty)", f"${avg_custom_cost:,.0f}", delta=f"${diff:,.0f} vs EOQ", delta_color="inverse")
     metric_c3.metric("Cost Gap (%)", f"{(diff / avg_eoq_cost * 100):.2f}%" if avg_eoq_cost > 0 else "0%")
+    
+    st.divider()
+    
+    # Min / Avg / Max Matrix for Overall Total Cost (Custom Qty) above the first graph
+    st.markdown("### Total Annual Cost Summary (Custom Quantity)")
+    tc_vals = res_custom["Total Cost"]
+    tc_m1, tc_m2, tc_m3 = st.columns(3)
+    tc_m1.metric("Min Total Cost", f"${min(tc_vals):,.0f}")
+    tc_m2.metric("Avg Total Cost", f"${np.mean(tc_vals):,.0f}")
+    tc_m3.metric("Max Total Cost", f"${max(tc_vals):,.0f}")
     
     # Comparative Histogram
     bin_width = st.slider("Adjust Histogram Bin Width ($)", min_value=100, max_value=5000, value=1000, step=100)
