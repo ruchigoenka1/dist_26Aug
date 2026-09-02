@@ -177,23 +177,45 @@ if "sim_custom" in st.session_state:
     
     st.divider()
     
-    # Plot Broken Down Costs for Custom Quantity
+    # Plot Broken Down Costs for Custom Quantity with Min/Avg/Max Metrics
     st.markdown("### Component Cost Drivers (Custom Quantity)")
     
     hc_col, fc_col, vc_col = st.columns(3)
+    
     with hc_col:
-        fig_hc = go.Figure(go.Histogram(x=res_custom["Holding Cost"], marker_color='#1f77b4'))
-        fig_hc.update_layout(title="Holding Cost", xaxis_title="Cost ($)", yaxis_title="Frequency", height=300, margin=dict(l=10, r=10, t=40, b=10))
+        st.markdown("#### Holding Cost")
+        hc_vals = res_custom["Holding Cost"]
+        hm1, hm2, hm3 = st.columns(3)
+        hm1.metric("Min", f"${min(hc_vals):,.0f}")
+        hm2.metric("Avg", f"${np.mean(hc_vals):,.0f}")
+        hm3.metric("Max", f"${max(hc_vals):,.0f}")
+        
+        fig_hc = go.Figure(go.Histogram(x=hc_vals, marker_color='#1f77b4'))
+        fig_hc.update_layout(xaxis_title="Cost ($)", yaxis_title="Frequency", height=280, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(style_plotly_fig(fig_hc), use_container_width=True)
         
     with fc_col:
-        fig_fc = go.Figure(go.Histogram(x=res_custom["Fixed Ordering Cost"], marker_color='#ff7f0e'))
-        fig_fc.update_layout(title="Fixed Ordering Cost", xaxis_title="Cost ($)", yaxis_title="Frequency", height=300, margin=dict(l=10, r=10, t=40, b=10))
+        st.markdown("#### Fixed Ordering Cost")
+        fc_vals = res_custom["Fixed Ordering Cost"]
+        fm1, fm2, fm3 = st.columns(3)
+        fm1.metric("Min", f"${min(fc_vals):,.0f}")
+        fm2.metric("Avg", f"${np.mean(fc_vals):,.0f}")
+        fm3.metric("Max", f"${max(fc_vals):,.0f}")
+        
+        fig_fc = go.Figure(go.Histogram(x=fc_vals, marker_color='#ff7f0e'))
+        fig_fc.update_layout(xaxis_title="Cost ($)", yaxis_title="Frequency", height=280, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(style_plotly_fig(fig_fc), use_container_width=True)
         
     with vc_col:
-        fig_vc = go.Figure(go.Histogram(x=res_custom["Variable Ordering Cost"], marker_color='#2ca02c'))
-        fig_vc.update_layout(title="Var. Ordering Cost", xaxis_title="Cost ($)", yaxis_title="Frequency", height=300, margin=dict(l=10, r=10, t=40, b=10))
+        st.markdown("#### Var. Ordering Cost")
+        vc_vals = res_custom["Variable Ordering Cost"]
+        vm1, vm2, vm3 = st.columns(3)
+        vm1.metric("Min", f"${min(vc_vals):,.0f}")
+        vm2.metric("Avg", f"${np.mean(vc_vals):,.0f}")
+        vm3.metric("Max", f"${max(vc_vals):,.0f}")
+        
+        fig_vc = go.Figure(go.Histogram(x=vc_vals, marker_color='#2ca02c'))
+        fig_vc.update_layout(xaxis_title="Cost ($)", yaxis_title="Frequency", height=280, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(style_plotly_fig(fig_vc), use_container_width=True)
 
     st.divider()
