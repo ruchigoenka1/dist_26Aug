@@ -315,13 +315,17 @@ if uploaded_file is not None:
                 first_sale_str = b['first_sale_date'].strftime('%Y-%m-%d') if not pd.isna(b['first_sale_date']) else "Not Yet Sold"
                 pre_sale_age = (b['first_sale_date'] - b['receive_date']).days if not pd.isna(b['first_sale_date']) else None
                 
+                # New calculation: age of the remaining inventory from the first time it was sold
+                age_from_first_sale = (batch_inspect_ts - b['first_sale_date']).days if not pd.isna(b['first_sale_date']) else None
+                
                 active_records.append({
                     "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
                     "Original Qty": int(b['original_qty']),
                     "Remaining Qty": int(b['remaining_qty']),
                     "Current Age (Days)": curr_age,
                     "First Sale Date": first_sale_str,
-                    "Pre-Sale Age (Days)": pre_sale_age
+                    "Pre-Sale Age (Days)": pre_sale_age,
+                    "Age from First Sale (Days)": age_from_first_sale
                 })
             else:
                 # Calculate metrics for Depleted Inventory
@@ -347,10 +351,16 @@ if uploaded_file is not None:
         st.markdown("#### 🟢 Active Batches (Current Stock)")
         if active_records:
             df_active = pd.DataFrame(active_records)
-            st.dataframe(df_active.style.format({"Pre-Sale Age (Days)": "{:.0f}"}), use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_active.style.format({
+                    "Pre-Sale Age (Days)": "{:.0f}",
+                    "Age from First Sale (Days)": "{:.0f}"
+                }), 
+                use_container_width=True, 
+                hide_index=True
+            )
         else:
             st.info(f"No active inventory batches remaining on {batch_inspect_date}.")
-            
         st.markdown("#### ⚪ Depleted Batches (Historical Performance)")
         if depleted_records:
             df_depleted = pd.DataFrame(depleted_records)
