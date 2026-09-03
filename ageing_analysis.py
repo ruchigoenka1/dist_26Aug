@@ -238,14 +238,13 @@ if uploaded_file is not None:
                 })
                 st.dataframe(tbl_df, use_container_width=True, hide_index=True)
 
-            # =====================================================================
+        # =====================================================================
         # BATCH-LEVEL AGING & PRE-SALE ANALYSIS
         # =====================================================================
         st.divider()
-        st.subheader("📦 Batch-Level Aging & Pre-Sale Analysis")
-        st.write("Inspect individual inventory batches to track exactly how long they sat before the first sale, and their current age.")
+        st.subheader("📦 Batch-Level Aging & Lifecycle Analysis")
+        st.write("Inspect individual inventory batches to track exactly how long they sit before the first sale, and how long they take to fully deplete.")
         
-        # Use a unique key for this date input to avoid state conflicts with the earlier drilldown
         batch_inspect_date = st.date_input(
             "Select Date for Batch Analysis", 
             value=max_date, 
@@ -255,8 +254,6 @@ if uploaded_file is not None:
         )
         
         batch_inspect_ts = pd.Timestamp(batch_inspect_date)
-        
-        # Filter dataset up to the selected date
         df_batch_sim = df[df[time_col] <= batch_inspect_ts].copy()
         
         all_batches = []
@@ -267,12 +264,13 @@ if uploaded_file is not None:
                 'receive_date': df_batch_sim.loc[0, time_col], 
                 'original_qty': df_batch_sim.loc[0, open_bal_col], 
                 'remaining_qty': df_batch_sim.loc[0, open_bal_col],
-                'first_sale_date': pd.NaT
+                'first_sale_date': pd.NaT,
+                'last_sale_date': pd.NaT
             })
             
         active_batch_idx = 0 
         
-        # Run isolated FIFO up to the selected date to precisely track first sale dates
+        # Run isolated FIFO up to the selected date
         for idx, row in df_batch_sim.iterrows():
             current_date = row[time_col]
             demand = row[demand_col]
@@ -283,7 +281,8 @@ if uploaded_file is not None:
                     'receive_date': current_date,
                     'original_qty': received,
                     'remaining_qty': received,
-                    'first_sale_date': pd.NaT
+                    'first_sale_date': pd.NaT,
+                    'last_sale_date': pd.NaT
                 })
                 
             # Deduct demand (FIFO)
@@ -291,59 +290,69 @@ if uploaded_file is not None:
                 b = all_batches[active_batch_idx]
                 
                 if b['remaining_qty'] > 0:
-                    # Mark first sale date if it is the first time we deduct from this batch
                     if pd.isna(b['first_sale_date']):
                         b['first_sale_date'] = current_date
                         
                     if b['remaining_qty'] <= demand:
                         demand -= b['remaining_qty']
                         b['remaining_qty'] = 0
-                        active_batch_idx += 1  # Batch depleted, move to next
+                        b['last_sale_date'] = current_date  # Mark depletion date
+                        active_batch_idx += 1 
                     else:
                         b['remaining_qty'] -= demand
                         demand = 0
                 else:
                     active_batch_idx += 1
                     
-        # Compile results for the dataframe
-        batch_records = []
-        for b in all_batches:
-            curr_age = (batch_inspect_ts - b['receive_date']).days
-            
-            if not pd.isna(b['first_sale_date']):
-                first_sale_str = b['first_sale_date'].strftime('%Y-%m-%d')
-                pre_sale_age = (b['first_sale_date'] - b['receive_date']).days
-                age_from_first_sale = (batch_inspect_ts - b['first_sale_date']).days
-            else:
-                first_sale_str = "Not Yet Sold"
-                pre_sale_age = None
-                age_from_first_sale = None
-                
-            batch_records.append({
-                "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
-                "Original Qty": int(b['original_qty']),
-                "Remaining Qty": int(b['remaining_qty']),
-                "Current Age (Days)": curr_age,
-                "First Sale Date": first_sale_str,
-                "Pre-Sale Age (Days)": pre_sale_age,
-                "Age from First Sale (Days)": age_from_first_sale
-            })
-            
-        df_batch_report = pd.DataFrame(batch_records)
+        # Split results into Active vs Depleted tables
+        active_records = []
+        depleted_records = []
         
-        # Provide a toggle to hide batches that are already at 0 quantity
-        show_depleted = st.checkbox("Show fully depleted batches", value=False)
-        if not show_depleted:
-            df_batch_report = df_batch_report[df_batch_report["Remaining Qty"] > 0]
+        for b in all_batches:
+            if b['remaining_qty'] > 0:
+                # Calculate metrics for Active Inventory
+                curr_age = (batch_inspect_ts - b['receive_date']).days
+                first_sale_str = b['first_sale_date'].strftime('%Y-%m-%d') if not pd.isna(b['first_sale_date']) else "Not Yet Sold"
+                pre_sale_age = (b['first_sale_date'] - b['receive_date']).days if not pd.isna(b['first_sale_date']) else None
+                
+                active_records.append({
+                    "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
+                    "Original Qty": int(b['original_qty']),
+                    "Remaining Qty": int(b['remaining_qty']),
+                    "Current Age (Days)": curr_age,
+                    "First Sale Date": first_sale_str,
+                    "Pre-Sale Age (Days)": pre_sale_age
+                })
+            else:
+                # Calculate metrics for Depleted Inventory
+                first_sale_str = b['first_sale_date'].strftime('%Y-%m-%d') if not pd.isna(b['first_sale_date']) else "N/A"
+                last_sale_str = b['last_sale_date'].strftime('%Y-%m-%d') if not pd.isna(b['last_sale_date']) else "N/A"
+                pre_sale_age = (b['first_sale_date'] - b['receive_date']).days if not pd.isna(b['first_sale_date']) else None
+                age_at_depletion = (b['last_sale_date'] - b['receive_date']).days if not pd.isna(b['last_sale_date']) else None
+                
+                depleted_records.append({
+                    "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
+                    "Original Qty": int(b['original_qty']),
+                    "First Sale Date": first_sale_str,
+                    "Depletion Date": last_sale_str,
+                    "Pre-Sale Age (Days)": pre_sale_age,
+                    "Age at Depletion (Days)": age_at_depletion
+                })
+                
+        # Render the Tables
+        st.markdown("#### 🟢 Active Batches (Current Stock)")
+        if active_records:
+            df_active = pd.DataFrame(active_records)
+            st.dataframe(df_active.style.format({"Pre-Sale Age (Days)": "{:.0f}"}), use_container_width=True, hide_index=True)
+        else:
+            st.info(f"No active inventory batches remaining on {batch_inspect_date}.")
             
-        st.dataframe(
-            df_batch_report.style.format({
-                "Pre-Sale Age (Days)": "{:.0f}", 
-                "Age from First Sale (Days)": "{:.0f}"
-            }), 
-            use_container_width=True, 
-            hide_index=True
-        )
+        st.markdown("#### ⚪ Depleted Batches (Historical Performance)")
+        if depleted_records:
+            df_depleted = pd.DataFrame(depleted_records)
+            st.dataframe(df_depleted.style.format({"Pre-Sale Age (Days)": "{:.0f}", "Age at Depletion (Days)": "{:.0f}"}), use_container_width=True, hide_index=True)
+        else:
+            st.info(f"No fully depleted batches as of {batch_inspect_date}.")
                 
     except Exception as e:
         st.error(f"Error processing the file: {e}")
