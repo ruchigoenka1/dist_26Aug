@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from scipy.stats import norm
 
 st.set_page_config(page_title="Inventory Aging Analysis", layout="wide")
 
