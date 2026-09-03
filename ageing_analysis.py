@@ -330,13 +330,17 @@ if uploaded_file is not None:
                 pre_sale_age = (b['first_sale_date'] - b['receive_date']).days if not pd.isna(b['first_sale_date']) else None
                 age_at_depletion = (b['last_sale_date'] - b['receive_date']).days if not pd.isna(b['last_sale_date']) else None
                 
+                # Calculate days from first sale to last sale
+                time_to_sell = (b['last_sale_date'] - b['first_sale_date']).days if not pd.isna(b['first_sale_date']) and not pd.isna(b['last_sale_date']) else None
+                
                 depleted_records.append({
                     "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
                     "Original Qty": int(b['original_qty']),
                     "First Sale Date": first_sale_str,
                     "Depletion Date": last_sale_str,
                     "Pre-Sale Age (Days)": pre_sale_age,
-                    "Age at Depletion (Days)": age_at_depletion
+                    "Age at Depletion (Days)": age_at_depletion,
+                    "Time to Sell (Days)": time_to_sell
                 })
                 
         # Render the Tables
@@ -350,7 +354,15 @@ if uploaded_file is not None:
         st.markdown("#### ⚪ Depleted Batches (Historical Performance)")
         if depleted_records:
             df_depleted = pd.DataFrame(depleted_records)
-            st.dataframe(df_depleted.style.format({"Pre-Sale Age (Days)": "{:.0f}", "Age at Depletion (Days)": "{:.0f}"}), use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_depleted.style.format({
+                    "Pre-Sale Age (Days)": "{:.0f}", 
+                    "Age at Depletion (Days)": "{:.0f}",
+                    "Time to Sell (Days)": "{:.0f}"
+                }), 
+                use_container_width=True, 
+                hide_index=True
+            )
         else:
             st.info(f"No fully depleted batches as of {batch_inspect_date}.")
                 
