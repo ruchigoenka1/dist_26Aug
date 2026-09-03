@@ -375,6 +375,83 @@ if uploaded_file is not None:
             )
         else:
             st.info(f"No fully depleted batches as of {batch_inspect_date}.")
+
+        # =====================================================================
+        # PROBABILISTIC VELOCITY ANALYSIS (ACTUAL VS MINIMUM EXPECTED)
+        # =====================================================================
+        st.divider()
+        st.subheader("⚡ Probabilistic Velocity Risk")
+        st.write("Compare actual batch depletion against a probabilistic minimum sales threshold to immediately flag stock moving slower than the worst-case statistical expectation.")
+        
+        vc1, vc2, vc3 = st.columns(3)
+        with vc1:
+            vel_avg_demand = st.number_input("Expected Daily Demand", value=50.0, step=5.0, key="vel_avg")
+        with vc2:
+            vel_std_demand = st.number_input("Demand Std Deviation", value=15.0, step=1.0, key="vel_std")
+        with vc3:
+            vel_conf_level = st.slider("Confidence Level (%)", min_value=50.0, max_value=99.9, value=95.0, step=0.1, help="Higher % lowers the minimum expected sales threshold.", key="vel_conf")
+            
+        z_score_vel = norm.ppf(vel_conf_level / 100.0)
+        
+        if active_records:
+            velocity_records = []
+            for b in active_records:
+                age_receipt = b["Current Age (Days)"]
+                age_sale = b["Age from First Sale (Days)"]
+                actual_sales = b["Original Qty"] - b["Remaining Qty"]
+                
+                # 1. Velocity from Receipt Date
+                if age_receipt > 0:
+                    min_sales_receipt = max(0, (vel_avg_demand * age_receipt) - (z_score_vel * vel_std_demand * np.sqrt(age_receipt)))
+                    if min_sales_receipt > 0:
+                        ratio_receipt = actual_sales / min_sales_receipt
+                    else:
+                        ratio_receipt = float('inf') if actual_sales > 0 else 0
+                else:
+                    min_sales_receipt = 0
+                    ratio_receipt = 0
+                    
+                # 2. Velocity from First Sale Date
+                if age_sale is not None and age_sale > 0:
+                    min_sales_first = max(0, (vel_avg_demand * age_sale) - (z_score_vel * vel_std_demand * np.sqrt(age_sale)))
+                    if min_sales_first > 0:
+                        ratio_first = actual_sales / min_sales_first
+                    else:
+                        ratio_first = float('inf') if actual_sales > 0 else 0
+                else:
+                    min_sales_first = 0
+                    ratio_first = None
+                    
+                velocity_records.append({
+                    "Receipt Date": b["Receipt Date"],
+                    "Remaining Qty": b["Remaining Qty"],
+                    "Actual Sales": actual_sales,
+                    "Min Expected (Since Receipt)": min_sales_receipt,
+                    "Velocity Ratio (Receipt)": ratio_receipt,
+                    "Min Expected (Since 1st Sale)": min_sales_first,
+                    "Velocity Ratio (1st Sale)": ratio_first
+                })
+                
+            df_vel = pd.DataFrame(velocity_records)
+            
+            # Format and apply a color gradient to visually flag risk (Red < 1.0x < Green)
+            st.dataframe(
+                df_vel.style.format({
+                    "Min Expected (Since Receipt)": "{:.0f}",
+                    "Velocity Ratio (Receipt)": "{:.2f}x",
+                    "Min Expected (Since 1st Sale)": "{:.0f}",
+                    "Velocity Ratio (1st Sale)": lambda x: f"{x:.2f}x" if pd.notnull(x) else "N/A"
+                }).background_gradient(
+                    subset=["Velocity Ratio (Receipt)"], 
+                    cmap="RdYlGn", 
+                    vmin=0.5, 
+                    vmax=1.5
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No active batches available to calculate velocity.")
                 
     except Exception as e:
         st.error(f"Error processing the file: {e}")
