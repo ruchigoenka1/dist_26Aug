@@ -406,66 +406,226 @@ if uploaded_file is not None:
             )
             
         z_score_vel = norm.ppf(vel_conf_level / 100.0)
+
+        # ---------------------------------------------------------
+        # PART A: POINT-IN-TIME VELOCITY SNAPSHOT
+        # ---------------------------------------------------------
+        st.markdown("#### Point-in-Time Velocity Snapshot")
+        vel_snapshot_date = st.date_input(
+            "Select Date for Velocity Snapshot", 
+            value=max_date, 
+            min_value=min_date, 
+            max_value=max_date, 
+            key="vel_snap_date"
+        )
+        vel_snapshot_ts = pd.Timestamp(vel_snapshot_date)
+
+        # Run lightweight FIFO up to the selected snapshot date
+        df_vel_sim = df[df[time_col] <= vel_snapshot_ts].copy()
         
-        if active_records:
-            velocity_records = []
-            for b in active_records:
-                age_receipt = b["Current Age (Days)"]
-                age_sale = b["Age from First Sale (Days)"]
-                actual_sales = b["Original Qty"] - b["Remaining Qty"]
+        vel_batches = []
+        if not pd.isna(df_vel_sim.loc[0, open_bal_col]) and df_vel_sim.loc[0, open_bal_col] > 0:
+            vel_batches.append({
+                'receive_date': df_vel_sim.loc[0, time_col], 
+                'original_qty': df_vel_sim.loc[0, open_bal_col], 
+                'remaining_qty': df_vel_sim.loc[0, open_bal_col],
+                'first_sale_date': pd.NaT
+            })
+            
+        active_vel_idx = 0 
+        for idx, row in df_vel_sim.iterrows():
+            current_date = row[time_col]
+            demand = row[demand_col]
+            received = row[receiving_col]
+            
+            if received > 0:
+                vel_batches.append({
+                    'receive_date': current_date,
+                    'original_qty': received,
+                    'remaining_qty': received,
+                    'first_sale_date': pd.NaT
+                })
                 
-                # 1. Velocity from Receipt Date
+            while demand > 0 and active_vel_idx < len(vel_batches):
+                b = vel_batches[active_vel_idx]
+                if b['remaining_qty'] > 0:
+                    if pd.isna(b['first_sale_date']):
+                        b['first_sale_date'] = current_date
+                        
+                    if b['remaining_qty'] <= demand:
+                        demand -= b['remaining_qty']
+                        b['remaining_qty'] = 0
+                        active_vel_idx += 1 
+                    else:
+                        b['remaining_qty'] -= demand
+                        demand = 0
+                else:
+                    active_vel_idx += 1
+
+        active_vel_records = []
+        for b in vel_batches:
+            if b['remaining_qty'] > 0:
+                age_receipt = (vel_snapshot_ts - b['receive_date']).days
+                age_sale = (vel_snapshot_ts - b['first_sale_date']).days if not pd.isna(b['first_sale_date']) else None
+                actual_sales = b["original_qty"] - b["remaining_qty"]
+                
+                # Velocity from Receipt Date
                 if age_receipt > 0:
                     min_sales_receipt = max(0, (vel_avg_demand * age_receipt) - (z_score_vel * vel_std_demand * np.sqrt(age_receipt)))
-                    if min_sales_receipt > 0:
-                        ratio_receipt = actual_sales / min_sales_receipt
-                    else:
-                        ratio_receipt = float('inf') if actual_sales > 0 else 0
+                    ratio_receipt = actual_sales / min_sales_receipt if min_sales_receipt > 0 else (float('inf') if actual_sales > 0 else 0)
                 else:
                     min_sales_receipt = 0
                     ratio_receipt = 0
                     
-                # 2. Velocity from First Sale Date
+                # Velocity from First Sale Date
                 if age_sale is not None and age_sale > 0:
                     min_sales_first = max(0, (vel_avg_demand * age_sale) - (z_score_vel * vel_std_demand * np.sqrt(age_sale)))
-                    if min_sales_first > 0:
-                        ratio_first = actual_sales / min_sales_first
-                    else:
-                        ratio_first = float('inf') if actual_sales > 0 else 0
+                    ratio_first = actual_sales / min_sales_first if min_sales_first > 0 else (float('inf') if actual_sales > 0 else 0)
                 else:
                     min_sales_first = 0
                     ratio_first = None
-                    
-                velocity_records.append({
-                    "Receipt Date": b["Receipt Date"],
-                    "Remaining Qty": b["Remaining Qty"],
-                    "Actual Sales": actual_sales,
+
+                active_vel_records.append({
+                    "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
+                    "Remaining Qty": int(b['remaining_qty']),
+                    "Actual Sales": int(actual_sales),
                     "Min Expected (Since Receipt)": min_sales_receipt,
                     "Velocity Ratio (Receipt)": ratio_receipt,
                     "Min Expected (Since 1st Sale)": min_sales_first,
                     "Velocity Ratio (1st Sale)": ratio_first
                 })
-                
-            df_vel = pd.DataFrame(velocity_records)
+
+        if active_vel_records:
+            df_vel = pd.DataFrame(active_vel_records)
             
-            # Format and apply a color gradient to visually flag risk
-            st.dataframe(
-                df_vel.style.format({
-                    "Min Expected (Since Receipt)": "{:.0f}",
-                    "Velocity Ratio (Receipt)": "{:.2f}x",
-                    "Min Expected (Since 1st Sale)": "{:.0f}",
-                    "Velocity Ratio (1st Sale)": lambda x: f"{x:.2f}x" if pd.notnull(x) else "N/A"
-                }).background_gradient(
-                    subset=["Velocity Ratio (Receipt)"], 
-                    cmap="RdYlGn", 
-                    vmin=0.5, 
-                    vmax=1.5
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
+            # Custom styling function (Requires no extra libraries)
+            def highlight_risk(val):
+                if pd.isna(val) or val == float('inf'):
+                    return ''
+                if isinstance(val, (int, float)):
+                    if val < 1.0:
+                        return 'background-color: rgba(255, 75, 75, 0.2)' 
+                    else:
+                        return 'background-color: rgba(44, 160, 44, 0.2)'
+                return ''
+
+            styled_df = df_vel.style.map(highlight_risk, subset=["Velocity Ratio (Receipt)"]).format({
+                "Min Expected (Since Receipt)": "{:.0f}",
+                "Velocity Ratio (Receipt)": "{:.2f}x",
+                "Min Expected (Since 1st Sale)": "{:.0f}",
+                "Velocity Ratio (1st Sale)": lambda x: f"{x:.2f}x" if pd.notnull(x) else "N/A"
+            })
+            
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
         else:
-            st.info("No active batches available to calculate velocity.")
+            st.info(f"No active batches available on {vel_snapshot_date} to calculate velocity.")
+
+        # ---------------------------------------------------------
+        # PART B: INDIVIDUAL BATCH VELOCITY TRAJECTORY
+        # ---------------------------------------------------------
+        st.divider()
+        st.markdown("#### 📈 Batch Velocity Trajectory")
+        st.write("Track the cumulative sales trajectory of a specific batch compared to its minimum expected risk threshold.")
+        
+        # Run a full simulation to track the daily history of EVERY batch for the graph
+        all_sim_batches = []
+        batch_counter = 1
+        batch_trajectories = {}
+        
+        sim_active_idx = 0
+        
+        if not pd.isna(df.loc[0, open_bal_col]) and df.loc[0, open_bal_col] > 0:
+            b_id = f"Batch {batch_counter} - {df.loc[0, time_col].strftime('%Y-%m-%d')} (Opening Qty: {df.loc[0, open_bal_col]:.0f})"
+            b_dict = {'id': b_id, 'receive_date': df.loc[0, time_col], 'original_qty': df.loc[0, open_bal_col], 'remaining_qty': df.loc[0, open_bal_col]}
+            all_sim_batches.append(b_dict)
+            batch_trajectories[b_id] = {"receipt_date": df.loc[0, time_col], "original_qty": df.loc[0, open_bal_col], "history": []}
+            batch_counter += 1
+            
+        for idx, row in df.iterrows():
+            current_date = row[time_col]
+            demand = row[demand_col]
+            received = row[receiving_col]
+            
+            if received > 0:
+                b_id = f"Batch {batch_counter} - {current_date.strftime('%Y-%m-%d')} (Receipt Qty: {received:.0f})"
+                b_dict = {'id': b_id, 'receive_date': current_date, 'original_qty': received, 'remaining_qty': received}
+                all_sim_batches.append(b_dict)
+                batch_trajectories[b_id] = {"receipt_date": current_date, "original_qty": received, "history": []}
+                batch_counter += 1
+                
+            while demand > 0 and sim_active_idx < len(all_sim_batches):
+                b = all_sim_batches[sim_active_idx]
+                if b['remaining_qty'] > 0:
+                    if b['remaining_qty'] <= demand:
+                        demand -= b['remaining_qty']
+                        b['remaining_qty'] = 0
+                        sim_active_idx += 1
+                    else:
+                        b['remaining_qty'] -= demand
+                        demand = 0
+                else:
+                    sim_active_idx += 1
+                    
+            # Record daily state for visualization
+            for b in all_sim_batches:
+                # Stop recording once the batch is fully depleted to save processing power
+                if len(batch_trajectories[b['id']]['history']) > 0 and batch_trajectories[b['id']]['history'][-1]['remaining_qty'] == 0:
+                    continue 
+                batch_trajectories[b['id']]['history'].append({
+                    'date': current_date,
+                    'remaining_qty': b['remaining_qty']
+                })
+                
+        if batch_trajectories:
+            selected_batch_id = st.selectbox("Select a Batch to Inspect", list(batch_trajectories.keys()))
+            
+            traj = batch_trajectories[selected_batch_id]
+            dates = []
+            actuals = []
+            expecteds = []
+            
+            for h in traj['history']:
+                d = h['date']
+                rem = h['remaining_qty']
+                age = (d - traj['receipt_date']).days
+                
+                act_sale = traj['original_qty'] - rem
+                if age > 0:
+                    exp_sale = max(0, (vel_avg_demand * age) - (z_score_vel * vel_std_demand * np.sqrt(age)))
+                else:
+                    exp_sale = 0
+                    
+                dates.append(d)
+                actuals.append(act_sale)
+                expecteds.append(exp_sale)
+                
+            fig_traj = go.Figure()
+            
+            # Area for acceptable minimum sales threshold
+            fig_traj.add_trace(go.Scatter(
+                x=dates, y=expecteds, 
+                mode='lines', 
+                name='Min Expected Threshold', 
+                line=dict(color='#ff4b4b', width=2, dash='dash')
+            ))
+            
+            # Actual sales line
+            fig_traj.add_trace(go.Scatter(
+                x=dates, y=actuals, 
+                mode='lines', 
+                name='Actual Cumulative Sales', 
+                line=dict(color='#2ca02c', width=4)
+            ))
+            
+            fig_traj.update_layout(
+                title=f"Sales Trajectory: {selected_batch_id}",
+                xaxis_title="Date",
+                yaxis_title="Cumulative Units Sold",
+                hovermode='x unified',
+                margin=dict(l=20, r=20, t=50, b=20)
+            )
+            
+            st.plotly_chart(style_plotly_fig(fig_traj), use_container_width=True)
                 
     except Exception as e:
         st.error(f"Error processing the file: {e}")
