@@ -171,6 +171,8 @@ if uploaded_file is not None:
                 y=ts_data[label],
                 mode='lines',
                 line=dict(width=0, color=color_palette[i % len(color_palette)]),
+                fillcolor=color_palette[i % len(color_palette)], # Force exact hex color
+                opacity=1.0, # Remove default Plotly transparency
                 stackgroup='one',
                 name=label
             ))
