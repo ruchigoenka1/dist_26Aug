@@ -383,13 +383,26 @@ if uploaded_file is not None:
         st.subheader("⚡ Probabilistic Velocity Risk")
         st.write("Compare actual batch depletion against a probabilistic minimum sales threshold to immediately flag stock moving slower than the worst-case statistical expectation.")
         
+        # Derive historical demand metrics directly from the uploaded data
+        vel_avg_demand = df[demand_col].mean()
+        vel_std_demand = df[demand_col].std()
+        
+        # Fallback to 0 if standard deviation is NaN (e.g., if there is only 1 day of data)
+        if pd.isna(vel_std_demand):
+            vel_std_demand = 0.0
+
         vc1, vc2, vc3 = st.columns(3)
         with vc1:
-            vel_avg_demand = st.number_input("Expected Daily Demand", value=50.0, step=5.0, key="vel_avg")
+            st.metric("Historical Daily Demand (Avg)", f"{vel_avg_demand:.2f} Units")
         with vc2:
-            vel_std_demand = st.number_input("Demand Std Deviation", value=15.0, step=1.0, key="vel_std")
+            st.metric("Historical Demand (Std Dev)", f"{vel_std_demand:.2f} Units")
         with vc3:
-            vel_conf_level = st.slider("Confidence Level (%)", min_value=50.0, max_value=99.9, value=95.0, step=0.1, help="Higher % lowers the minimum expected sales threshold.", key="vel_conf")
+            vel_conf_level = st.slider(
+                "Confidence Level (%)", 
+                min_value=50.0, max_value=99.9, value=95.0, step=0.1, 
+                help="Higher % lowers the minimum expected sales threshold.", 
+                key="vel_conf"
+            )
             
         z_score_vel = norm.ppf(vel_conf_level / 100.0)
         
@@ -434,7 +447,7 @@ if uploaded_file is not None:
                 
             df_vel = pd.DataFrame(velocity_records)
             
-            # Format and apply a color gradient to visually flag risk (Red < 1.0x < Green)
+            # Format and apply a color gradient to visually flag risk
             st.dataframe(
                 df_vel.style.format({
                     "Min Expected (Since Receipt)": "{:.0f}",
