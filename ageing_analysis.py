@@ -39,7 +39,6 @@ if uploaded_file is not None:
         else:
             df = pd.read_excel(uploaded_file)
             
-        # Ensure column names map correctly to the expected format
         time_col = 'Date'
         demand_col = 'Demand/Sales' 
         receiving_col = 'Receiving'
@@ -54,24 +53,20 @@ if uploaded_file is not None:
         # 2. FIFO Simulation Engine
         batches = []
         
-        # Handle day 0 opening balance safely
         if not pd.isna(df.loc[0, open_bal_col]) and df.loc[0, open_bal_col] > 0:
             batches.append({'receive_date': df.loc[0, time_col], 'qty': df.loc[0, open_bal_col]})
             
         daily_avg_age = []
         daily_age_profile = {} 
         
-        # Iterate day by day to track physical age of individual units
         for idx, row in df.iterrows():
             current_date = row[time_col]
             demand = row[demand_col]
             received = row[receiving_col]
             
-            # Process Inbound Stock (Creates new batch)
             if received > 0:
                 batches.append({'receive_date': current_date, 'qty': received})
                 
-            # Process Outbound Stock (Depletes oldest batches first via FIFO)
             while demand > 0 and len(batches) > 0:
                 if batches[0]['qty'] <= demand:
                     demand -= batches[0]['qty']
@@ -80,7 +75,6 @@ if uploaded_file is not None:
                     batches[0]['qty'] -= demand
                     demand = 0
                     
-            # Capture End-of-Day Snapshots
             total_qty = 0
             total_age = 0
             current_profile = []
@@ -105,70 +99,49 @@ if uploaded_file is not None:
         st.subheader("Historical Average Age vs. Inventory Velocity")
         st.write("Understand what drives the average age of your stock up or down. Major receiving events pull the average age down sharply, while slow sales periods allow it to creep up.")
         
-        # Create Combo Chart
         fig_agg = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # Add Bars for In/Out to Secondary Y-Axis
-        fig_agg.add_trace(
-            go.Bar(x=df[time_col], y=df[receiving_col], name="Inventory In (Receiving)", marker_color="rgba(44, 160, 44, 0.6)"),
-            secondary_y=True,
-        )
-        fig_agg.add_trace(
-            go.Bar(x=df[time_col], y=-df[demand_col], name="Inventory Out (Demand)", marker_color="rgba(214, 39, 40, 0.6)"),
-            secondary_y=True,
-        )
-        
-        # Add Line for Avg Age to Primary Y-Axis
-        fig_agg.add_trace(
-            go.Scatter(x=df[time_col], y=df['Average Age'], name="Average Age (Days)", line=dict(color="skyblue", width=3)),
-            secondary_y=False,
-        )
+        fig_agg.add_trace(go.Bar(x=df[time_col], y=df[receiving_col], name="Inventory In (Receiving)", marker_color="rgba(44, 160, 44, 0.6)"), secondary_y=True)
+        fig_agg.add_trace(go.Bar(x=df[time_col], y=-df[demand_col], name="Inventory Out (Demand)", marker_color="rgba(214, 39, 40, 0.6)"), secondary_y=True)
+        fig_agg.add_trace(go.Scatter(x=df[time_col], y=df['Average Age'], name="Average Age (Days)", line=dict(color="skyblue", width=3)), secondary_y=False)
         
         fig_agg.update_layout(barmode='relative', xaxis_title="Date", bargap=0.1)
         fig_agg.update_yaxes(title_text="Average Age (Days)", secondary_y=False, rangemode='tozero')
         fig_agg.update_yaxes(title_text="Units Processed (In/Out)", secondary_y=True)
-        fig_agg = style_plotly_fig(fig_agg)
-        
-        st.plotly_chart(fig_agg, use_container_width=True)
+        st.plotly_chart(style_plotly_fig(fig_agg), use_container_width=True)
         
         st.divider()
         
         # =====================================================================
-        # POINT-IN-TIME DRILLDOWN
+        # INVENTORY AGE PROFILE (FIFO STACKED)
         # =====================================================================
-        st.subheader("🔍 Point-in-Time Inventory Age Drilldown")
+        st.subheader("🕒 Inventory Age Profile (FIFO Stacked)")
+        st.write("Visualize what fraction of your total inventory sitting in the warehouse belongs to distinct aging brackets over time.")
         
-        ctrl1, ctrl2 = st.columns([1, 1])
-        with ctrl1:
-            bucket_input = st.text_input("Define Age Buckets (comma-separated days)", value="30, 60, 90")
-            try:
-                cutoffs = [int(x.strip()) for x in bucket_input.split(',')]
-                cutoffs.sort()
-            except ValueError:
-                st.error("Please enter valid integers separated by commas (e.g., 30, 60, 90).")
-                cutoffs = [30, 60, 90]
-                
-        with ctrl2:
-            min_date = df[time_col].min().date()
-            max_date = df[time_col].max().date()
-            selected_date = st.date_input("Select specific date to inspect inventory age distribution", value=max_date, min_value=min_date, max_value=max_date)
+        # Move the Bucket Input here so it drives both the Stacked Area and the Drilldown
+        bucket_input = st.text_input("Define custom inventory age thresholds in days (comma-separated, e.g., '30, 60, 90')", value="30, 60, 90")
+        try:
+            cutoffs = [int(x.strip()) for x in bucket_input.split(',')]
+            cutoffs.sort()
+        except ValueError:
+            st.error("Please enter valid integers separated by commas (e.g., 30, 60, 90).")
+            cutoffs = [30, 60, 90]
             
-        selected_date_ts = pd.Timestamp(selected_date)
+        # Generate Labels based on cutoffs
+        labels = []
+        prev = 0
+        for cutoff in cutoffs:
+            labels.append(f"{prev}-{cutoff} Days" if prev == 0 else f"{prev+1}-{cutoff} Days")
+            prev = cutoff
+        labels.append(f"{prev+1}+ Days")
         
-        if selected_date_ts in daily_age_profile:
-            profile = daily_age_profile[selected_date_ts]
-            
-            # Dynamically generate bucket labels and sort inventory
-            buckets = {}
-            labels = []
-            prev = 0
-            for cutoff in cutoffs:
-                labels.append(f"{prev}-{cutoff} Days" if prev == 0 else f"{prev+1}-{cutoff} Days")
-                prev = cutoff
-            labels.append(f"{prev+1}+ Days")
-            
-            for l in labels: 
-                buckets[l] = 0
+        # 3. Calculate time-series buckets for the stacked chart
+        ts_data = {l: [] for l in labels}
+        dates_list = []
+        
+        for current_date in df[time_col]:
+            profile = daily_age_profile.get(pd.Timestamp(current_date), [])
+            daily_buckets = {l: 0 for l in labels}
             
             for b in profile:
                 age = b['age']
@@ -176,11 +149,66 @@ if uploaded_file is not None:
                 placed = False
                 for i, cutoff in enumerate(cutoffs):
                     if age <= cutoff:
-                        buckets[labels[i]] += qty
+                        daily_buckets[labels[i]] += qty
                         placed = True
                         break
                 if not placed:
-                    buckets[labels[-1]] += qty
+                    daily_buckets[labels[-1]] += qty
+                    
+            for l in labels:
+                ts_data[l].append(daily_buckets[l])
+            dates_list.append(current_date)
+            
+        # Plot the Stacked Area Chart
+        fig_stacked = go.Figure()
+        
+        # Warm to hot colors (Blue for fresh, Brown/Red for aged)
+        color_palette = ['#4A789C', '#285375', '#8C6C38', '#8B2E2E', '#5E1E1E', '#3E1010'] 
+        
+        for i, label in enumerate(labels):
+            fig_stacked.add_trace(go.Scatter(
+                x=dates_list,
+                y=ts_data[label],
+                mode='lines',
+                line=dict(width=0, color=color_palette[i % len(color_palette)]),
+                stackgroup='one',
+                name=label
+            ))
+            
+        fig_stacked.update_layout(yaxis_title="Units In Stock", hovermode='x unified')
+        st.plotly_chart(style_plotly_fig(fig_stacked), use_container_width=True)
+        
+        st.divider()
+
+        # =====================================================================
+        # POINT-IN-TIME DRILLDOWN
+        # =====================================================================
+        st.subheader("🔍 Point-in-Time Inventory Age Drilldown")
+        st.write("Select specific date to inspect inventory age distribution")
+        
+        min_date = df[time_col].min().date()
+        max_date = df[time_col].max().date()
+        selected_date = st.date_input("Date Inspector", value=max_date, min_value=min_date, max_value=max_date)
+            
+        selected_date_ts = pd.Timestamp(selected_date)
+        
+        if selected_date_ts in daily_age_profile:
+            profile = daily_age_profile[selected_date_ts]
+            
+            # Reuse the dynamic labels and buckets from above
+            drilldown_buckets = {l: 0 for l in labels}
+            
+            for b in profile:
+                age = b['age']
+                qty = b['qty']
+                placed = False
+                for i, cutoff in enumerate(cutoffs):
+                    if age <= cutoff:
+                        drilldown_buckets[labels[i]] += qty
+                        placed = True
+                        break
+                if not placed:
+                    drilldown_buckets[labels[-1]] += qty
                     
             # Draw Drilldown Matrix
             viz1, viz2 = st.columns([2, 1])
@@ -188,24 +216,23 @@ if uploaded_file is not None:
             with viz1:
                 st.markdown(f"**Age Distribution on {selected_date}**")
                 
-                # Apply custom colors: fresh stock (first bucket) gets standard blue, aging stock gets a muted gray-blue
-                colors = ['#1f77b4'] + ['#b0c4de'] * (len(labels) - 1)
+                # Colors: first bucket gets standard blue, aging stock gets a muted gray-blue
+                bar_colors = ['#1f77b4'] + ['#b0c4de'] * (len(labels) - 1)
                 
                 fig_bar = go.Figure(go.Bar(
-                    x=list(buckets.keys()), 
-                    y=list(buckets.values()), 
+                    x=list(drilldown_buckets.keys()), 
+                    y=list(drilldown_buckets.values()), 
                     name="Actuals",
-                    marker_color=colors
+                    marker_color=bar_colors
                 ))
                 fig_bar.update_layout(yaxis_title="Units", margin=dict(l=0, r=0, t=30, b=0), height=380)
-                fig_bar = style_plotly_fig(fig_bar)
-                st.plotly_chart(fig_bar, use_container_width=True)
+                st.plotly_chart(style_plotly_fig(fig_bar), use_container_width=True)
                 
             with viz2:
                 st.markdown("**Exact Stock Counts:**")
                 tbl_df = pd.DataFrame({
-                    "Age Bracket": list(buckets.keys()),
-                    "Historical Actuals (Units)": [int(v) for v in buckets.values()]
+                    "Age Bracket": list(drilldown_buckets.keys()),
+                    "Historical Actuals (Units)": [int(v) for v in drilldown_buckets.values()]
                 })
                 st.dataframe(tbl_df, use_container_width=True, hide_index=True)
                 
