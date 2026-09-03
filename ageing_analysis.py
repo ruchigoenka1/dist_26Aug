@@ -237,6 +237,113 @@ if uploaded_file is not None:
                     "Historical Actuals (Units)": [int(v) for v in drilldown_buckets.values()]
                 })
                 st.dataframe(tbl_df, use_container_width=True, hide_index=True)
+
+            # =====================================================================
+        # BATCH-LEVEL AGING & PRE-SALE ANALYSIS
+        # =====================================================================
+        st.divider()
+        st.subheader("📦 Batch-Level Aging & Pre-Sale Analysis")
+        st.write("Inspect individual inventory batches to track exactly how long they sat before the first sale, and their current age.")
+        
+        # Use a unique key for this date input to avoid state conflicts with the earlier drilldown
+        batch_inspect_date = st.date_input(
+            "Select Date for Batch Analysis", 
+            value=max_date, 
+            min_value=min_date, 
+            max_value=max_date, 
+            key="batch_inspector_date"
+        )
+        
+        batch_inspect_ts = pd.Timestamp(batch_inspect_date)
+        
+        # Filter dataset up to the selected date
+        df_batch_sim = df[df[time_col] <= batch_inspect_ts].copy()
+        
+        all_batches = []
+        
+        # Safely handle opening balance
+        if not pd.isna(df_batch_sim.loc[0, open_bal_col]) and df_batch_sim.loc[0, open_bal_col] > 0:
+            all_batches.append({
+                'receive_date': df_batch_sim.loc[0, time_col], 
+                'original_qty': df_batch_sim.loc[0, open_bal_col], 
+                'remaining_qty': df_batch_sim.loc[0, open_bal_col],
+                'first_sale_date': pd.NaT
+            })
+            
+        active_batch_idx = 0 
+        
+        # Run isolated FIFO up to the selected date to precisely track first sale dates
+        for idx, row in df_batch_sim.iterrows():
+            current_date = row[time_col]
+            demand = row[demand_col]
+            received = row[receiving_col]
+            
+            if received > 0:
+                all_batches.append({
+                    'receive_date': current_date,
+                    'original_qty': received,
+                    'remaining_qty': received,
+                    'first_sale_date': pd.NaT
+                })
+                
+            # Deduct demand (FIFO)
+            while demand > 0 and active_batch_idx < len(all_batches):
+                b = all_batches[active_batch_idx]
+                
+                if b['remaining_qty'] > 0:
+                    # Mark first sale date if it is the first time we deduct from this batch
+                    if pd.isna(b['first_sale_date']):
+                        b['first_sale_date'] = current_date
+                        
+                    if b['remaining_qty'] <= demand:
+                        demand -= b['remaining_qty']
+                        b['remaining_qty'] = 0
+                        active_batch_idx += 1  # Batch depleted, move to next
+                    else:
+                        b['remaining_qty'] -= demand
+                        demand = 0
+                else:
+                    active_batch_idx += 1
+                    
+        # Compile results for the dataframe
+        batch_records = []
+        for b in all_batches:
+            curr_age = (batch_inspect_ts - b['receive_date']).days
+            
+            if not pd.isna(b['first_sale_date']):
+                first_sale_str = b['first_sale_date'].strftime('%Y-%m-%d')
+                pre_sale_age = (b['first_sale_date'] - b['receive_date']).days
+                age_from_first_sale = (batch_inspect_ts - b['first_sale_date']).days
+            else:
+                first_sale_str = "Not Yet Sold"
+                pre_sale_age = None
+                age_from_first_sale = None
+                
+            batch_records.append({
+                "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
+                "Original Qty": int(b['original_qty']),
+                "Remaining Qty": int(b['remaining_qty']),
+                "Current Age (Days)": curr_age,
+                "First Sale Date": first_sale_str,
+                "Pre-Sale Age (Days)": pre_sale_age,
+                "Age from First Sale (Days)": age_from_first_sale
+            })
+            
+        df_batch_report = pd.DataFrame(batch_records)
+        
+        # Provide a toggle to hide batches that are already at 0 quantity
+        show_depleted = st.checkbox("Show fully depleted batches", value=False)
+        if not show_depleted:
+            df_batch_report = df_batch_report[df_batch_report["Remaining Qty"] > 0]
+            
+        st.dataframe(
+            df_batch_report.style.format({
+                "Pre-Sale Age (Days)": "{:.0f}", 
+                "Age from First Sale (Days)": "{:.0f}"
+            }), 
+            use_container_width=True, 
+            hide_index=True
+        )
                 
     except Exception as e:
         st.error(f"Error processing the file: {e}")
