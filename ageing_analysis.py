@@ -487,6 +487,8 @@ if uploaded_file is not None:
 
                 active_vel_records.append({
                     "Receipt Date": b['receive_date'].strftime('%Y-%m-%d'),
+                    "Days Since Receipt": age_receipt,
+                    "Days Since 1st Sale": age_sale,
                     "Remaining Qty": int(b['remaining_qty']),
                     "Actual Sales": int(actual_sales),
                     "Min Expected (Since Receipt)": min_sales_receipt,
@@ -498,7 +500,6 @@ if uploaded_file is not None:
         if active_vel_records:
             df_vel = pd.DataFrame(active_vel_records)
             
-            # Custom styling function (Requires no extra libraries)
             def highlight_risk(val):
                 if pd.isna(val) or val == float('inf'):
                     return ''
@@ -510,6 +511,8 @@ if uploaded_file is not None:
                 return ''
 
             styled_df = df_vel.style.map(highlight_risk, subset=["Velocity Ratio (Receipt)"]).format({
+                "Days Since Receipt": "{:.0f}",
+                "Days Since 1st Sale": lambda x: f"{x:.0f}" if pd.notnull(x) else "N/A",
                 "Min Expected (Since Receipt)": "{:.0f}",
                 "Velocity Ratio (Receipt)": "{:.2f}x",
                 "Min Expected (Since 1st Sale)": "{:.0f}",
@@ -520,6 +523,7 @@ if uploaded_file is not None:
         else:
             st.info(f"No active batches available on {vel_snapshot_date} to calculate velocity.")
 
+        
         # ---------------------------------------------------------
         # PART B: INDIVIDUAL BATCH VELOCITY TRAJECTORY
         # ---------------------------------------------------------
@@ -536,7 +540,7 @@ if uploaded_file is not None:
         
         if not pd.isna(df.loc[0, open_bal_col]) and df.loc[0, open_bal_col] > 0:
             b_id = f"Batch {batch_counter} - {df.loc[0, time_col].strftime('%Y-%m-%d')} (Opening Qty: {df.loc[0, open_bal_col]:.0f})"
-            b_dict = {'id': b_id, 'receive_date': df.loc[0, time_col], 'original_qty': df.loc[0, open_bal_col], 'remaining_qty': df.loc[0, open_bal_col]}
+            b_dict = {'id': b_id, 'receive_date': df.loc[0, time_col], 'original_qty': df.loc[0, open_bal_col], 'remaining_qty': df.loc[0, open_bal_col], 'first_sale_date': pd.NaT}
             all_sim_batches.append(b_dict)
             batch_trajectories[b_id] = {"receipt_date": df.loc[0, time_col], "original_qty": df.loc[0, open_bal_col], "history": []}
             batch_counter += 1
@@ -548,7 +552,7 @@ if uploaded_file is not None:
             
             if received > 0:
                 b_id = f"Batch {batch_counter} - {current_date.strftime('%Y-%m-%d')} (Receipt Qty: {received:.0f})"
-                b_dict = {'id': b_id, 'receive_date': current_date, 'original_qty': received, 'remaining_qty': received}
+                b_dict = {'id': b_id, 'receive_date': current_date, 'original_qty': received, 'remaining_qty': received, 'first_sale_date': pd.NaT}
                 all_sim_batches.append(b_dict)
                 batch_trajectories[b_id] = {"receipt_date": current_date, "original_qty": received, "history": []}
                 batch_counter += 1
@@ -556,6 +560,9 @@ if uploaded_file is not None:
             while demand > 0 and sim_active_idx < len(all_sim_batches):
                 b = all_sim_batches[sim_active_idx]
                 if b['remaining_qty'] > 0:
+                    if pd.isna(b['first_sale_date']):
+                        b['first_sale_date'] = current_date
+                        
                     if b['remaining_qty'] <= demand:
                         demand -= b['remaining_qty']
                         b['remaining_qty'] = 0
@@ -566,14 +573,13 @@ if uploaded_file is not None:
                 else:
                     sim_active_idx += 1
                     
-            # Record daily state for visualization
             for b in all_sim_batches:
-                # Stop recording once the batch is fully depleted to save processing power
                 if len(batch_trajectories[b['id']]['history']) > 0 and batch_trajectories[b['id']]['history'][-1]['remaining_qty'] == 0:
                     continue 
                 batch_trajectories[b['id']]['history'].append({
                     'date': current_date,
-                    'remaining_qty': b['remaining_qty']
+                    'remaining_qty': b['remaining_qty'],
+                    'first_sale_date': b['first_sale_date']
                 })
                 
         if batch_trajectories:
@@ -582,30 +588,42 @@ if uploaded_file is not None:
             traj = batch_trajectories[selected_batch_id]
             dates = []
             actuals = []
-            expecteds = []
+            expecteds_receipt = []
+            expecteds_first = []
             
             for h in traj['history']:
                 d = h['date']
                 rem = h['remaining_qty']
-                age = (d - traj['receipt_date']).days
+                fs_date = h['first_sale_date']
+                
+                age_receipt = (d - traj['receipt_date']).days
+                age_sale = (d - fs_date).days if not pd.isna(fs_date) else 0
                 
                 act_sale = traj['original_qty'] - rem
-                if age > 0:
-                    exp_sale = max(0, (vel_avg_demand * age) - (z_score_vel * vel_std_demand * np.sqrt(age)))
-                else:
-                    exp_sale = 0
+                
+                exp_sale_receipt = max(0, (vel_avg_demand * age_receipt) - (z_score_vel * vel_std_demand * np.sqrt(age_receipt))) if age_receipt > 0 else 0
+                exp_sale_first = max(0, (vel_avg_demand * age_sale) - (z_score_vel * vel_std_demand * np.sqrt(age_sale))) if not pd.isna(fs_date) and age_sale > 0 else 0
                     
                 dates.append(d)
                 actuals.append(act_sale)
-                expecteds.append(exp_sale)
+                expecteds_receipt.append(exp_sale_receipt)
+                expecteds_first.append(exp_sale_first)
                 
             fig_traj = go.Figure()
             
-            # Area for acceptable minimum sales threshold
+            # Expected from Receipt
             fig_traj.add_trace(go.Scatter(
-                x=dates, y=expecteds, 
+                x=dates, y=expecteds_receipt, 
                 mode='lines', 
-                name='Min Expected Threshold', 
+                name='Min Expected (Since Receipt)', 
+                line=dict(color='#ff9999', width=2, dash='dot')
+            ))
+            
+            # Expected from First Sale
+            fig_traj.add_trace(go.Scatter(
+                x=dates, y=expecteds_first, 
+                mode='lines', 
+                name='Min Expected (Since 1st Sale)', 
                 line=dict(color='#ff4b4b', width=2, dash='dash')
             ))
             
@@ -626,6 +644,16 @@ if uploaded_file is not None:
             )
             
             st.plotly_chart(style_plotly_fig(fig_traj), use_container_width=True)
+            
+            # Add the raw data table below the graph
+            st.markdown("##### Trajectory Data Table")
+            df_traj = pd.DataFrame({
+                "Date": [d.strftime('%Y-%m-%d') for d in dates],
+                "Actual Cumulative Sales": [int(x) for x in actuals],
+                "Min Expected (Since Receipt)": [int(x) for x in expecteds_receipt],
+                "Min Expected (Since 1st Sale)": [int(x) for x in expecteds_first]
+            })
+            st.dataframe(df_traj, use_container_width=True, hide_index=True)
                 
     except Exception as e:
         st.error(f"Error processing the file: {e}")
