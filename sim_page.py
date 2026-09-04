@@ -272,5 +272,26 @@ st.plotly_chart(fig4, use_container_width=True)
 # ------------------------------------------------
 # Simulation Data Table
 # ------------------------------------------------
+
+st.divider()
+
+st.markdown("### Pipeline Orders")
+# Graph 5: Pipeline Orders
+fig5 = go.Figure()
+fig5.add_trace(go.Scatter(x=df["Date"], y=df["Pipeline Order"], name="Pipeline Qty", line=dict(color='purple', width=2), fill='tozeroy', fillcolor='rgba(128,0,128,0.1)'))
+fig5 = style_plotly_fig(fig5)
+st.plotly_chart(fig5, use_container_width=True)
+
+st.divider()
+
+st.markdown("### Total Inventory (Physical + Pipeline)")
+# Graph 6: Total Inventory
+fig6 = go.Figure()
+fig6.add_trace(go.Scatter(x=df["Date"], y=df["Physical Inventory"] + df["Pipeline Order"], name="Total Inventory", line=dict(color='teal', width=2)))
+fig6.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
+fig6 = style_plotly_fig(fig6)
+st.plotly_chart(fig6, use_container_width=True)
+
+
 st.subheader("Simulation Data")
 st.dataframe(df, use_container_width=True)
