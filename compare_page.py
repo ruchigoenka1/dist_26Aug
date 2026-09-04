@@ -120,14 +120,14 @@ if uploaded_file is not None:
             
         else:
             review_period = st.sidebar.number_input("Review Period (Days)", value=7)
-            target_sl = st.sidebar.number_input("Target Service Level (%)", min_value=1.0, max_value=99.9, value=95.0, step=0.1)
             
-            # Calculate Order-Up-To Level (S)
-            z_score = norm.ppf(target_sl / 100.0)
-            order_up_to_S = int(round(max(0, avg_demand_hist * (review_period + lead_time) + z_score * std_demand_hist * np.sqrt(review_period + lead_time))))
+            # Dynamic baseline default: Avg demand during review + lead time, plus a 50% buffer
+            default_S = int(round(avg_demand_hist * (review_period + lead_time) * 1.5)) if avg_demand_hist > 0 else 500
             
-            default_ob = int(1.25 * order_up_to_S) if order_up_to_S > 0 else 500
-            st.sidebar.info(f"Calculated Order-Up-To Level (S): **{order_up_to_S}** units")
+            # User directly inputs the exact Order-Up-To Level (S)
+            order_up_to_S = st.sidebar.number_input("Order-Up-To Level (S)", min_value=1, value=max(1, default_S))
+            
+            default_ob = int(1.25 * order_up_to_S)
             
             ref_line = order_up_to_S
             ref_label = "Target Level (S)"
