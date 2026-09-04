@@ -392,41 +392,46 @@ if uploaded_file is not None:
             
         vel_cov = vel_std_demand / vel_avg_demand if vel_avg_demand > 0 else 0
 
-        vc1, vc2, vc3, vc4 = st.columns(4)
+        st.markdown("##### Configuration & Confidence Levels")
+        vc1, vc2, vc3, vc4, vc5 = st.columns(5)
         with vc1:
-            st.metric("Historical Daily Demand (Avg)", f"{vel_avg_demand:.2f} Units")
+            st.metric("Historical Avg Demand", f"{vel_avg_demand:.2f}")
         with vc2:
-            st.metric("Historical Demand (Std Dev)", f"{vel_std_demand:.2f} Units")
+            st.metric("Historical Std Dev", f"{vel_std_demand:.2f}")
         with vc3:
-            st.metric("Coefficient of Variation (CoV)", f"{vel_cov:.2f}")
+            st.metric("CoV", f"{vel_cov:.2f}")
         with vc4:
-            vel_conf_level = st.slider(
-                "Confidence Level (%)", 
-                min_value=50.0, max_value=99.9, value=95.0, step=0.1, 
-                help="Higher % lowers the minimum expected sales threshold.", 
-                key="vel_conf"
-            )
+            vel_conf_min = st.number_input("Min SL (Worst Case %)", min_value=50.0, max_value=99.9, value=95.0, step=0.1, key="vel_min")
+        with vc5:
+            vel_conf_max = st.number_input("Max SL (Best Case %)", min_value=50.0, max_value=99.9, value=75.0, step=0.1, key="vel_max")
             
-        z_score_vel = norm.ppf(vel_conf_level / 100.0)
+        z_min = norm.ppf(vel_conf_min / 100.0)
+        z_max = norm.ppf(vel_conf_max / 100.0)
+        z_mid = 0.0 # 50% Confidence
         
-        # --- Pre-compute Minimum Expected Sales Lookup Table ---
+        # --- Pre-compute Minimum Expected Sales Lookup Tables ---
         max_possible_age = len(df) + 10 # Buffer for age lookups
-        hist_min_expected = {0: 0}
+        hist_exp_min, hist_exp_mid, hist_exp_max = {0: 0}, {0: 0}, {0: 0}
         historical_demand_array = df[demand_col].values
         
         if vel_cov > 0.5 and vel_avg_demand > 0:
             st.caption("🤖 **Auto-Selected Model:** Empirical Bootstrapping (Historical CoV > 0.5 indicates volatile/lumpy demand)")
             np.random.seed(42)
             for t in range(1, max_possible_age + 1):
-                # Bootstrap 1,000 empirical paths for 't' days
                 samples = np.random.choice(historical_demand_array, size=(1000, t), replace=True)
                 sums = samples.sum(axis=1)
-                hist_min_expected[t] = max(0, np.percentile(sums, 100 - vel_conf_level))
+                hist_exp_min[t] = max(0, np.percentile(sums, 100 - vel_conf_min))
+                hist_exp_mid[t] = max(0, np.percentile(sums, 50))
+                hist_exp_max[t] = max(0, np.percentile(sums, 100 - vel_conf_max))
         else:
             st.caption("🤖 **Auto-Selected Model:** Normal Distribution (Historical CoV <= 0.5 indicates stable demand)")
             for t in range(1, max_possible_age + 1):
-                hist_min_expected[t] = max(0, (vel_avg_demand * t) - (z_score_vel * vel_std_demand * np.sqrt(t)))
-
+                hist_exp_min[t] = max(0, (vel_avg_demand * t) - (z_min * vel_std_demand * np.sqrt(t)))
+                hist_exp_mid[t] = max(0, (vel_avg_demand * t) - (z_mid * vel_std_demand * np.sqrt(t)))
+                hist_exp_max[t] = max(0, (vel_avg_demand * t) - (z_max * vel_std_demand * np.sqrt(t)))
+                
+        # Bind the minimum threshold to the variable used in Part A's snapshot table
+        hist_min_expected = hist_exp_min
         
         # ---------------------------------------------------------
         # PART A: POINT-IN-TIME VELOCITY SNAPSHOT
@@ -607,10 +612,11 @@ if uploaded_file is not None:
             selected_batch_id = st.selectbox("Select a Batch to Inspect", list(batch_trajectories.keys()))
             
             traj = batch_trajectories[selected_batch_id]
-            dates = []
-            actuals = []
-            expecteds_receipt = []
-            expecteds_first = []
+            dates, actuals = [], []
+            
+            # Data containers for both timelines
+            exp_rec_min, exp_rec_mid, exp_rec_max = [], [], []
+            exp_fs_min, exp_fs_mid, exp_fs_max = [], [], []
             
             for h in traj['history']:
                 d = h['date']
@@ -619,64 +625,71 @@ if uploaded_file is not None:
                 
                 age_receipt = (d - traj['receipt_date']).days
                 age_sale = (d - fs_date).days if not pd.isna(fs_date) else 0
-                
                 act_sale = traj['original_qty'] - rem
-                
-                exp_sale_receipt = hist_min_expected.get(age_receipt, 0) if age_receipt > 0 else 0
-                exp_sale_first = hist_min_expected.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0
-
                 
                 dates.append(d)
                 actuals.append(act_sale)
-                expecteds_receipt.append(exp_sale_receipt)
-                expecteds_first.append(exp_sale_first)
                 
-            fig_traj = go.Figure()
+                # Append Receipt Timeline Lookups
+                exp_rec_min.append(hist_exp_min.get(age_receipt, 0) if age_receipt > 0 else 0)
+                exp_rec_mid.append(hist_exp_mid.get(age_receipt, 0) if age_receipt > 0 else 0)
+                exp_rec_max.append(hist_exp_max.get(age_receipt, 0) if age_receipt > 0 else 0)
+                
+                # Append First Sale Timeline Lookups
+                exp_fs_min.append(hist_exp_min.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0)
+                exp_fs_mid.append(hist_exp_mid.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0)
+                exp_fs_max.append(hist_exp_max.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0)
+                
+            # Helper function to standardize the zoned plotting logic
+            def create_zoned_fig(title, dates_list, actuals_list, e_min, e_mid, e_max):
+                fig = go.Figure()
+                
+                # 1. Min Threshold Line (Start of Red Zone)
+                fig.add_trace(go.Scatter(x=dates_list, y=e_min, mode='lines', name=f'Min SL ({vel_conf_min}%)', line=dict(color='rgba(255, 75, 75, 0.8)', width=1)))
+                
+                # 2. Mid Threshold Line (Fills down to Min in Red)
+                fig.add_trace(go.Scatter(x=dates_list, y=e_mid, mode='lines', name='Avg SL (50%)', fill='tonexty', fillcolor='rgba(255, 75, 75, 0.2)', line=dict(color='rgba(255, 200, 0, 0.8)', width=2, dash='dot')))
+                
+                # 3. Max Threshold Line (Fills down to Mid in Green)
+                fig.add_trace(go.Scatter(x=dates_list, y=e_max, mode='lines', name=f'Max SL ({vel_conf_max}%)', fill='tonexty', fillcolor='rgba(44, 160, 44, 0.2)', line=dict(color='rgba(44, 160, 44, 0.8)', width=1)))
+                
+                # 4. Actual Sales Line
+                fig.add_trace(go.Scatter(x=dates_list, y=actuals_list, mode='lines', name='Actual Cumulative Sales', line=dict(color='#ffffff', width=3)))
+                
+                fig.update_layout(
+                    title=title,
+                    xaxis_title="Date",
+                    yaxis_title="Cumulative Units Sold",
+                    hovermode='x unified',
+                    # Push legend to the absolute bottom and drastically increase top margin
+                    margin=dict(l=20, r=20, t=80, b=80), 
+                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5) 
+                )
+                return style_plotly_fig(fig)
+
+            # --- Render Bifurcated Tabs ---
+            tab_rec, tab_fs = st.tabs(["Trajectory (Since Receipt)", "Trajectory (Since 1st Sale)"])
             
-            # Expected from Receipt
-            fig_traj.add_trace(go.Scatter(
-                x=dates, y=expecteds_receipt, 
-                mode='lines', 
-                name='Min Expected (Since Receipt)', 
-                line=dict(color='#ff9999', width=2, dash='dot')
-            ))
+            with tab_rec:
+                fig_rec = create_zoned_fig(f"Since Receipt: {selected_batch_id}", dates, actuals, exp_rec_min, exp_rec_mid, exp_rec_max)
+                st.plotly_chart(fig_rec, use_container_width=True)
+                
+            with tab_fs:
+                fig_fs = create_zoned_fig(f"Since 1st Sale: {selected_batch_id}", dates, actuals, exp_fs_min, exp_fs_mid, exp_fs_max)
+                st.plotly_chart(fig_fs, use_container_width=True)
             
-            # Expected from First Sale
-            fig_traj.add_trace(go.Scatter(
-                x=dates, y=expecteds_first, 
-                mode='lines', 
-                name='Min Expected (Since 1st Sale)', 
-                line=dict(color='#ff4b4b', width=2, dash='dash')
-            ))
-            
-            # Actual sales line
-            fig_traj.add_trace(go.Scatter(
-                x=dates, y=actuals, 
-                mode='lines', 
-                name='Actual Cumulative Sales', 
-                line=dict(color='#2ca02c', width=4)
-            ))
-            
-            fig_traj.update_layout(
-                title=f"Sales Trajectory: {selected_batch_id}",
-                xaxis_title="Date",
-                yaxis_title="Cumulative Units Sold",
-                hovermode='x unified',
-                margin=dict(l=20, r=20, t=50, b=20)
-            )
-            
-            st.plotly_chart(style_plotly_fig(fig_traj), use_container_width=True)
-            
-            # Add the raw data table below the graph
             st.markdown("##### Trajectory Data Table")
             df_traj = pd.DataFrame({
                 "Date": [d.strftime('%Y-%m-%d') for d in dates],
                 "Actual Cumulative Sales": [int(x) for x in actuals],
-                "Min Expected (Since Receipt)": [int(x) for x in expecteds_receipt],
-                "Min Expected (Since 1st Sale)": [int(x) for x in expecteds_first]
+                "Min Expected (Receipt)": [int(x) for x in exp_rec_min],
+                "Avg Expected (Receipt)": [int(x) for x in exp_rec_mid],
+                "Min Expected (1st Sale)": [int(x) for x in exp_fs_min],
+                "Avg Expected (1st Sale)": [int(x) for x in exp_fs_mid]
             })
             st.dataframe(df_traj, use_container_width=True, hide_index=True)
 
+        
         # ---------------------------------------------------------
         # PART C: BATCH VELOCITY TRAJECTORY (FORECASTED DEMAND)
         # ---------------------------------------------------------
