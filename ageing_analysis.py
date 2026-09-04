@@ -384,20 +384,22 @@ if uploaded_file is not None:
         st.subheader("⚡ Probabilistic Velocity Risk")
         st.write("Compare actual batch depletion against a probabilistic minimum sales threshold to immediately flag stock moving slower than the worst-case statistical expectation.")
         
-        # Derive historical demand metrics directly from the uploaded data
+        # Derive historical demand metrics
         vel_avg_demand = df[demand_col].mean()
         vel_std_demand = df[demand_col].std()
-        
-        # Fallback to 0 if standard deviation is NaN (e.g., if there is only 1 day of data)
         if pd.isna(vel_std_demand):
             vel_std_demand = 0.0
+            
+        vel_cov = vel_std_demand / vel_avg_demand if vel_avg_demand > 0 else 0
 
-        vc1, vc2, vc3 = st.columns(3)
+        vc1, vc2, vc3, vc4 = st.columns(4)
         with vc1:
             st.metric("Historical Daily Demand (Avg)", f"{vel_avg_demand:.2f} Units")
         with vc2:
             st.metric("Historical Demand (Std Dev)", f"{vel_std_demand:.2f} Units")
         with vc3:
+            st.metric("Coefficient of Variation (CoV)", f"{vel_cov:.2f}")
+        with vc4:
             vel_conf_level = st.slider(
                 "Confidence Level (%)", 
                 min_value=50.0, max_value=99.9, value=95.0, step=0.1, 
@@ -406,7 +408,26 @@ if uploaded_file is not None:
             )
             
         z_score_vel = norm.ppf(vel_conf_level / 100.0)
+        
+        # --- Pre-compute Minimum Expected Sales Lookup Table ---
+        max_possible_age = len(df) + 10 # Buffer for age lookups
+        hist_min_expected = {0: 0}
+        historical_demand_array = df[demand_col].values
+        
+        if vel_cov > 0.5 and vel_avg_demand > 0:
+            st.caption("🤖 **Auto-Selected Model:** Empirical Bootstrapping (Historical CoV > 0.5 indicates volatile/lumpy demand)")
+            np.random.seed(42)
+            for t in range(1, max_possible_age + 1):
+                # Bootstrap 1,000 empirical paths for 't' days
+                samples = np.random.choice(historical_demand_array, size=(1000, t), replace=True)
+                sums = samples.sum(axis=1)
+                hist_min_expected[t] = max(0, np.percentile(sums, 100 - vel_conf_level))
+        else:
+            st.caption("🤖 **Auto-Selected Model:** Normal Distribution (Historical CoV <= 0.5 indicates stable demand)")
+            for t in range(1, max_possible_age + 1):
+                hist_min_expected[t] = max(0, (vel_avg_demand * t) - (z_score_vel * vel_std_demand * np.sqrt(t)))
 
+        
         # ---------------------------------------------------------
         # PART A: POINT-IN-TIME VELOCITY SNAPSHOT
         # ---------------------------------------------------------
@@ -471,7 +492,7 @@ if uploaded_file is not None:
                 
                 # Velocity from Receipt Date
                 if age_receipt > 0:
-                    min_sales_receipt = max(0, (vel_avg_demand * age_receipt) - (z_score_vel * vel_std_demand * np.sqrt(age_receipt)))
+                    min_sales_receipt = hist_min_expected.get(age_receipt, 0)
                     ratio_receipt = actual_sales / min_sales_receipt if min_sales_receipt > 0 else (float('inf') if actual_sales > 0 else 0)
                 else:
                     min_sales_receipt = 0
@@ -479,7 +500,7 @@ if uploaded_file is not None:
                     
                 # Velocity from First Sale Date
                 if age_sale is not None and age_sale > 0:
-                    min_sales_first = max(0, (vel_avg_demand * age_sale) - (z_score_vel * vel_std_demand * np.sqrt(age_sale)))
+                    min_sales_first = hist_min_expected.get(age_sale, 0)
                     ratio_first = actual_sales / min_sales_first if min_sales_first > 0 else (float('inf') if actual_sales > 0 else 0)
                 else:
                     min_sales_first = 0
@@ -601,9 +622,10 @@ if uploaded_file is not None:
                 
                 act_sale = traj['original_qty'] - rem
                 
-                exp_sale_receipt = max(0, (vel_avg_demand * age_receipt) - (z_score_vel * vel_std_demand * np.sqrt(age_receipt))) if age_receipt > 0 else 0
-                exp_sale_first = max(0, (vel_avg_demand * age_sale) - (z_score_vel * vel_std_demand * np.sqrt(age_sale))) if not pd.isna(fs_date) and age_sale > 0 else 0
-                    
+                exp_sale_receipt = hist_min_expected.get(age_receipt, 0) if age_receipt > 0 else 0
+                exp_sale_first = hist_min_expected.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0
+
+                
                 dates.append(d)
                 actuals.append(act_sale)
                 expecteds_receipt.append(exp_sale_receipt)
@@ -654,6 +676,107 @@ if uploaded_file is not None:
                 "Min Expected (Since 1st Sale)": [int(x) for x in expecteds_first]
             })
             st.dataframe(df_traj, use_container_width=True, hide_index=True)
+
+        # ---------------------------------------------------------
+        # PART C: BATCH VELOCITY TRAJECTORY (FORECASTED DEMAND)
+        # ---------------------------------------------------------
+        st.divider()
+        st.markdown("#### 🔮 Batch Velocity Trajectory (Forecasted Demand)")
+        st.write("Evaluate batch performance against a custom forecasted demand distribution, dynamically scaled against historical volatility.")
+        
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            forecast_avg_input = st.number_input("Forecasted Expected Demand", min_value=1.0, value=100.0, key="fc_avg")
+        with fc2:
+            forecast_duration = st.number_input("Duration for Forecast (Days)", min_value=1, value=30, key="fc_dur")
+            
+        fc_daily_avg = forecast_avg_input / forecast_duration
+        fc_daily_std = fc_daily_avg * vel_cov # Scale std dev based on historical variation to maintain CoV
+        
+        st.info(f"Scaled Daily Forecast Avg: **{fc_daily_avg:.2f} Units** | Scaled Daily Std Dev: **{fc_daily_std:.2f} Units**")
+        
+        # --- Pre-compute Forecasted Minimum Expected Sales Lookup ---
+        fc_min_expected = {0: 0}
+        
+        if vel_cov > 0.5 and vel_avg_demand > 0:
+            np.random.seed(42)
+            scaling_factor = fc_daily_avg / vel_avg_demand
+            for t in range(1, max_possible_age + 1):
+                samples = np.random.choice(historical_demand_array, size=(1000, t), replace=True)
+                sums = samples.sum(axis=1) * scaling_factor
+                fc_min_expected[t] = max(0, np.percentile(sums, 100 - vel_conf_level))
+        else:
+            for t in range(1, max_possible_age + 1):
+                fc_min_expected[t] = max(0, (fc_daily_avg * t) - (z_score_vel * fc_daily_std * np.sqrt(t)))
+                
+        if batch_trajectories:
+            selected_fc_batch_id = st.selectbox("Select a Batch to Inspect (Forecasted)", list(batch_trajectories.keys()), key="fc_batch_sel")
+            
+            traj_fc = batch_trajectories[selected_fc_batch_id]
+            dates_fc = []
+            actuals_fc = []
+            exp_rec_fc = []
+            exp_first_fc = []
+            
+            for h in traj_fc['history']:
+                d = h['date']
+                rem = h['remaining_qty']
+                fs_date = h['first_sale_date']
+                
+                age_receipt = (d - traj_fc['receipt_date']).days
+                age_sale = (d - fs_date).days if not pd.isna(fs_date) else 0
+                
+                act_sale = traj_fc['original_qty'] - rem
+                
+                e_rec = fc_min_expected.get(age_receipt, 0) if age_receipt > 0 else 0
+                e_first = fc_min_expected.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0
+                    
+                dates_fc.append(d)
+                actuals_fc.append(act_sale)
+                exp_rec_fc.append(e_rec)
+                exp_first_fc.append(e_first)
+                
+            fig_fc = go.Figure()
+            
+            fig_fc.add_trace(go.Scatter(
+                x=dates_fc, y=exp_rec_fc, 
+                mode='lines', 
+                name='Forecast Min Expected (Since Receipt)', 
+                line=dict(color='#ff9999', width=2, dash='dot')
+            ))
+            
+            fig_fc.add_trace(go.Scatter(
+                x=dates_fc, y=exp_first_fc, 
+                mode='lines', 
+                name='Forecast Min Expected (Since 1st Sale)', 
+                line=dict(color='#ff4b4b', width=2, dash='dash')
+            ))
+            
+            fig_fc.add_trace(go.Scatter(
+                x=dates_fc, y=actuals_fc, 
+                mode='lines', 
+                name='Actual Cumulative Sales', 
+                line=dict(color='#2ca02c', width=4)
+            ))
+            
+            fig_fc.update_layout(
+                title=f"Forecasted Sales Trajectory: {selected_fc_batch_id}",
+                xaxis_title="Date",
+                yaxis_title="Cumulative Units Sold",
+                hovermode='x unified',
+                margin=dict(l=20, r=20, t=50, b=20)
+            )
+            
+            st.plotly_chart(style_plotly_fig(fig_fc), use_container_width=True)
+            
+            st.markdown("##### Forecasted Trajectory Data Table")
+            df_traj_fc = pd.DataFrame({
+                "Date": [d.strftime('%Y-%m-%d') for d in dates_fc],
+                "Actual Cumulative Sales": [int(x) for x in actuals_fc],
+                "Forecast Min Expected (Since Receipt)": [int(x) for x in exp_rec_fc],
+                "Forecast Min Expected (Since 1st Sale)": [int(x) for x in exp_first_fc]
+            })
+            st.dataframe(df_traj_fc, use_container_width=True, hide_index=True)
                 
     except Exception as e:
         st.error(f"Error processing the file: {e}")
