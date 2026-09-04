@@ -6,3 +6,4 @@ streamlit-authenticator
 openpyxl
 scipy
 matplotlib
+prophet
