@@ -7,3 +7,4 @@ openpyxl
 scipy
 matplotlib
 prophet
+statsmodels
