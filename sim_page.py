@@ -216,8 +216,19 @@ st.plotly_chart(fig1, use_container_width=True)
 
 st.divider()
 
+st.markdown("### Total Inventory (Physical + Pipeline)")
+# Graph 2: Total Inventory
+fig_total = go.Figure()
+fig_total.add_trace(go.Scatter(x=df["Date"], y=df["Physical Inventory"], name="Physical Inventory", line=dict(color='skyblue', width=2, dash='dot')))
+fig_total.add_trace(go.Scatter(x=df["Date"], y=df["Physical Inventory"] + df["Pipeline Order"], name="Total Inventory", line=dict(color='teal', width=2)))
+fig_total.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
+fig_total = style_plotly_fig(fig_total)
+st.plotly_chart(fig_total, use_container_width=True)
+
+st.divider()
+
 st.markdown("### Net Inventory")
-# Graph 2: Net Inventory (Can drop below 0)
+# Graph 3: Net Inventory (Can drop below 0)
 fig2 = go.Figure()
 fig2.add_trace(go.Scatter(x=df["Date"], y=df["Net Inventory"], name="Net Inventory (Includes Backorders)", line=dict(color='orange', width=2)))
 
@@ -254,7 +265,7 @@ st.plotly_chart(fig2, use_container_width=True)
 st.divider()
 
 st.markdown("### Lost Sales (Stockouts)")
-# Graph 3: Lost Sales (Stockout Quantity)
+# Graph 4: Lost Sales (Stockout Quantity)
 fig3 = go.Figure()
 fig3.add_trace(go.Scatter(x=df["Date"], y=df["Daily Lost Sales"], name="Lost Sales Qty", line=dict(color='red', width=2), fill='tozeroy', fillcolor='rgba(255,0,0,0.1)'))
 fig3 = style_plotly_fig(fig3)
@@ -263,20 +274,16 @@ st.plotly_chart(fig3, use_container_width=True)
 st.divider()
 
 st.markdown("### Active Backorders")
-# Graph 4: Active Backorders
+# Graph 5: Active Backorders
 fig4 = go.Figure()
 fig4.add_trace(go.Scatter(x=df["Date"], y=df["Active Backorders"], name="Active Backorders", line=dict(color='#ffaa00', width=2), fill='tozeroy', fillcolor='rgba(255,170,0,0.1)'))
 fig4 = style_plotly_fig(fig4)
 st.plotly_chart(fig4, use_container_width=True)
 
-# ------------------------------------------------
-# Simulation Data Table
-# ------------------------------------------------
-
 st.divider()
 
 st.markdown("### Pipeline Orders")
-# Graph 5: Pipeline Orders
+# Graph 6: Pipeline Orders
 fig5 = go.Figure()
 fig5.add_trace(go.Scatter(x=df["Date"], y=df["Pipeline Order"], name="Pipeline Qty", line=dict(color='purple', width=2), fill='tozeroy', fillcolor='rgba(128,0,128,0.1)'))
 fig5 = style_plotly_fig(fig5)
@@ -284,14 +291,9 @@ st.plotly_chart(fig5, use_container_width=True)
 
 st.divider()
 
-st.markdown("### Total Inventory (Physical + Pipeline)")
-# Graph 6: Total Inventory
-fig6 = go.Figure()
-fig6.add_trace(go.Scatter(x=df["Date"], y=df["Physical Inventory"] + df["Pipeline Order"], name="Total Inventory", line=dict(color='teal', width=2)))
-fig6.add_hline(y=reorder_point, line_dash="dash", line_color="gray", annotation_text="Reorder Point", annotation_font_color="white")
-fig6 = style_plotly_fig(fig6)
-st.plotly_chart(fig6, use_container_width=True)
-
+# ------------------------------------------------
+# Simulation Data Table
+# ------------------------------------------------
 
 st.subheader("Simulation Data")
 st.dataframe(df, use_container_width=True)
