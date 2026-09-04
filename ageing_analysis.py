@@ -401,9 +401,23 @@ if uploaded_file is not None:
         with vc3:
             st.metric("CoV", f"{vel_cov:.2f}")
         with vc4:
-            vel_conf_min = st.number_input("Min SL (Worst Case %)", min_value=50.0, max_value=99.9, value=95.0, step=0.1, key="vel_min")
+            vel_conf_min = st.number_input(
+                "Min SL (Lower Bound %)", 
+                min_value=1.0, 
+                max_value=99.9, 
+                value=95.0, 
+                step=0.1, 
+                key="vel_min"
+            )
         with vc5:
-            vel_conf_max = st.number_input("Max SL (Best Case %)", min_value=50.0, max_value=99.9, value=75.0, step=0.1, key="vel_max")
+            vel_conf_max = st.number_input(
+                "Max SL (Upper Bound %)", 
+                min_value=1.0, 
+                max_value=99.9, 
+                value=75.0, 
+                step=0.1, 
+                key="vel_max"
+            )
             
         z_min = norm.ppf(vel_conf_min / 100.0)
         z_max = norm.ppf(vel_conf_max / 100.0)
