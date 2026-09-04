@@ -120,7 +120,7 @@ if uploaded_file is not None:
             
         else:
             review_period = st.sidebar.number_input("Review Period (Days)", value=7)
-            target_sl = st.sidebar.slider("Target Service Level (%)", min_value=50.0, max_value=99.9, value=95.0, step=0.1)
+            target_sl = st.sidebar.number_input("Target Service Level (%)", min_value=1.0, max_value=99.9, value=95.0, step=0.1)
             
             # Calculate Order-Up-To Level (S)
             z_score = norm.ppf(target_sl / 100.0)
