@@ -722,8 +722,8 @@ if uploaded_file is not None:
         
         st.info(f"Scaled Daily Forecast Avg: **{fc_daily_avg:.2f} Units** | Scaled Daily Std Dev: **{fc_daily_std:.2f} Units**")
         
-        # --- Pre-compute Forecasted Minimum Expected Sales Lookup ---
-        fc_min_expected = {0: 0}
+        # --- Pre-compute Forecasted Expected Sales Lookup Tables ---
+        fc_exp_min, fc_exp_mid, fc_exp_max = {0: 0}, {0: 0}, {0: 0}
         
         if vel_cov > 0.5 and vel_avg_demand > 0:
             np.random.seed(42)
@@ -731,19 +731,24 @@ if uploaded_file is not None:
             for t in range(1, max_possible_age + 1):
                 samples = np.random.choice(historical_demand_array, size=(1000, t), replace=True)
                 sums = samples.sum(axis=1) * scaling_factor
-                fc_min_expected[t] = max(0, np.percentile(sums, 100 - vel_conf_level))
+                fc_exp_min[t] = max(0, np.percentile(sums, 100 - vel_conf_min))
+                fc_exp_mid[t] = max(0, np.percentile(sums, 50))
+                fc_exp_max[t] = max(0, np.percentile(sums, 100 - vel_conf_max))
         else:
             for t in range(1, max_possible_age + 1):
-                fc_min_expected[t] = max(0, (fc_daily_avg * t) - (z_score_vel * fc_daily_std * np.sqrt(t)))
+                fc_exp_min[t] = max(0, (fc_daily_avg * t) - (z_min * fc_daily_std * np.sqrt(t)))
+                fc_exp_mid[t] = max(0, (fc_daily_avg * t) - (z_mid * fc_daily_std * np.sqrt(t)))
+                fc_exp_max[t] = max(0, (fc_daily_avg * t) - (z_max * fc_daily_std * np.sqrt(t)))
                 
         if batch_trajectories:
             selected_fc_batch_id = st.selectbox("Select a Batch to Inspect (Forecasted)", list(batch_trajectories.keys()), key="fc_batch_sel")
             
             traj_fc = batch_trajectories[selected_fc_batch_id]
-            dates_fc = []
-            actuals_fc = []
-            exp_rec_fc = []
-            exp_first_fc = []
+            dates_fc, actuals_fc = [], []
+            
+            # Data containers for both timelines
+            fc_rec_min, fc_rec_mid, fc_rec_max = [], [], []
+            fc_fs_min, fc_fs_mid, fc_fs_max = [], [], []
             
             for h in traj_fc['history']:
                 d = h['date']
@@ -752,56 +757,40 @@ if uploaded_file is not None:
                 
                 age_receipt = (d - traj_fc['receipt_date']).days
                 age_sale = (d - fs_date).days if not pd.isna(fs_date) else 0
-                
                 act_sale = traj_fc['original_qty'] - rem
                 
-                e_rec = fc_min_expected.get(age_receipt, 0) if age_receipt > 0 else 0
-                e_first = fc_min_expected.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0
-                    
                 dates_fc.append(d)
                 actuals_fc.append(act_sale)
-                exp_rec_fc.append(e_rec)
-                exp_first_fc.append(e_first)
                 
-            fig_fc = go.Figure()
+                # Append Receipt Timeline Lookups
+                fc_rec_min.append(fc_exp_min.get(age_receipt, 0) if age_receipt > 0 else 0)
+                fc_rec_mid.append(fc_exp_mid.get(age_receipt, 0) if age_receipt > 0 else 0)
+                fc_rec_max.append(fc_exp_max.get(age_receipt, 0) if age_receipt > 0 else 0)
+                
+                # Append First Sale Timeline Lookups
+                fc_fs_min.append(fc_exp_min.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0)
+                fc_fs_mid.append(fc_exp_mid.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0)
+                fc_fs_max.append(fc_exp_max.get(age_sale, 0) if not pd.isna(fs_date) and age_sale > 0 else 0)
+                
+            tab_fc_rec, tab_fc_fs = st.tabs(["Forecasted Trajectory (Since Receipt)", "Forecasted Trajectory (Since 1st Sale)"])
             
-            fig_fc.add_trace(go.Scatter(
-                x=dates_fc, y=exp_rec_fc, 
-                mode='lines', 
-                name='Forecast Min Expected (Since Receipt)', 
-                line=dict(color='#ff9999', width=2, dash='dot')
-            ))
-            
-            fig_fc.add_trace(go.Scatter(
-                x=dates_fc, y=exp_first_fc, 
-                mode='lines', 
-                name='Forecast Min Expected (Since 1st Sale)', 
-                line=dict(color='#ff4b4b', width=2, dash='dash')
-            ))
-            
-            fig_fc.add_trace(go.Scatter(
-                x=dates_fc, y=actuals_fc, 
-                mode='lines', 
-                name='Actual Cumulative Sales', 
-                line=dict(color='#2ca02c', width=4)
-            ))
-            
-            fig_fc.update_layout(
-                title=f"Forecasted Sales Trajectory: {selected_fc_batch_id}",
-                xaxis_title="Date",
-                yaxis_title="Cumulative Units Sold",
-                hovermode='x unified',
-                margin=dict(l=20, r=20, t=50, b=20)
-            )
-            
-            st.plotly_chart(style_plotly_fig(fig_fc), use_container_width=True)
+            with tab_fc_rec:
+                # We reuse the create_zoned_fig function defined earlier in Part B
+                fig_fc_rec = create_zoned_fig(f"Forecasted Since Receipt: {selected_fc_batch_id}", dates_fc, actuals_fc, fc_rec_min, fc_rec_mid, fc_rec_max)
+                st.plotly_chart(fig_fc_rec, use_container_width=True)
+                
+            with tab_fc_fs:
+                fig_fc_fs = create_zoned_fig(f"Forecasted Since 1st Sale: {selected_fc_batch_id}", dates_fc, actuals_fc, fc_fs_min, fc_fs_mid, fc_fs_max)
+                st.plotly_chart(fig_fc_fs, use_container_width=True)
             
             st.markdown("##### Forecasted Trajectory Data Table")
             df_traj_fc = pd.DataFrame({
                 "Date": [d.strftime('%Y-%m-%d') for d in dates_fc],
                 "Actual Cumulative Sales": [int(x) for x in actuals_fc],
-                "Forecast Min Expected (Since Receipt)": [int(x) for x in exp_rec_fc],
-                "Forecast Min Expected (Since 1st Sale)": [int(x) for x in exp_first_fc]
+                "Forecast Min Expected (Receipt)": [int(x) for x in fc_rec_min],
+                "Forecast Avg Expected (Receipt)": [int(x) for x in fc_rec_mid],
+                "Forecast Min Expected (1st Sale)": [int(x) for x in fc_fs_min],
+                "Forecast Avg Expected (1st Sale)": [int(x) for x in fc_fs_mid]
             })
             st.dataframe(df_traj_fc, use_container_width=True, hide_index=True)
                 
