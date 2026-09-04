@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from prophet import Prophet
+import io
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -25,22 +26,32 @@ def style_plotly_fig(fig):
     fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
     return fig
 
+ # <--- Add this at the top of your file
+
 # =====================================================================
 # HEADER & UPLOAD
 # =====================================================================
 st.title("📈 Demand Forecasting Engine")
 st.markdown("Generate future demand predictions using statistical (SARIMA) and AI-driven (Prophet) models.")
 
-# Generate Sample File for Download
+# Generate Excel Sample File for Download
 @st.cache_data
-def convert_df(df):
-    return df.to_csv(index=False).encode('utf-8')
+def generate_excel_sample():
+    sample_df = pd.DataFrame({
+        'Date': pd.date_range(start="2024-01-01", periods=365).strftime('%Y-%m-%d'),
+        'Demand/Sales': np.random.poisson(lam=100, size=365)
+    })
+    
+    # Create an in-memory buffer
+    buffer = io.BytesIO()
+    
+    # Write the dataframe to the buffer as an Excel file
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        sample_df.to_excel(writer, index=False, sheet_name='Demand_Data')
+        
+    return buffer.getvalue()
 
-sample_df = pd.DataFrame({
-    'Date': pd.date_range(start="2024-01-01", periods=365).strftime('%Y-%m-%d'),
-    'Demand/Sales': np.random.poisson(lam=100, size=365)
-})
-sample_csv = convert_df(sample_df)
+sample_excel = generate_excel_sample()
 
 c1, c2 = st.columns([3, 1])
 with c1:
@@ -48,13 +59,14 @@ with c1:
 with c2:
     st.markdown("<br>", unsafe_allow_html=True) # Spacer
     st.download_button(
-        label="📥 Download Sample Template",
-        data=sample_csv,
-        file_name='sample_demand_template.csv',
-        mime='text/csv',
+        label="📥 Download Excel Template",
+        data=sample_excel,
+        file_name='sample_demand_template.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
 
 if uploaded_file is not None:
+
     try:
         # Parse File
         if uploaded_file.name.endswith('.csv'):
