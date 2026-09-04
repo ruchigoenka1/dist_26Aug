@@ -31,7 +31,28 @@ def style_plotly_fig(fig):
 st.title("📈 Demand Forecasting Engine")
 st.markdown("Generate future demand predictions using statistical (SARIMA) and AI-driven (Prophet) models.")
 
-uploaded_file = st.file_uploader("Upload Historical Demand Data", type=["csv", "xlsx"])
+# Generate Sample File for Download
+@st.cache_data
+def convert_df(df):
+    return df.to_csv(index=False).encode('utf-8')
+
+sample_df = pd.DataFrame({
+    'Date': pd.date_range(start="2024-01-01", periods=365).strftime('%Y-%m-%d'),
+    'Demand/Sales': np.random.poisson(lam=100, size=365)
+})
+sample_csv = convert_df(sample_df)
+
+c1, c2 = st.columns([3, 1])
+with c1:
+    uploaded_file = st.file_uploader("Upload Historical Demand Data", type=["csv", "xlsx"])
+with c2:
+    st.markdown("<br>", unsafe_allow_html=True) # Spacer
+    st.download_button(
+        label="📥 Download Sample Template",
+        data=sample_csv,
+        file_name='sample_demand_template.csv',
+        mime='text/csv',
+    )
 
 if uploaded_file is not None:
     try:
