@@ -60,7 +60,7 @@ compare_page = st.Page("compare_page.py", title="Historical Comparison", icon="�
 demand_page = st.Page("demand_analysis.py", title="Demand Analysis", icon="📊")
 order_quantity_page = st.Page("order_quantity.py", title="Order Quantity", icon="📦")
 age_analysis_page = st.Page("ageing_analysis.py", title="Ageing Analysis", icon="📈")
-demand_forecatsing_page = st.Page("demand_forecasting.py", title="Demand Forecasting", icon="📈")
+demand_forecasting_page = st.Page("demand_forecasting.py", title="Demand Forecasting", icon="📈")
 
 
 # --- New Policy Simulators ---
