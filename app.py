@@ -60,6 +60,7 @@ compare_page = st.Page("compare_page.py", title="Historical Comparison", icon="�
 demand_page = st.Page("demand_analysis.py", title="Demand Analysis", icon="📊")
 order_quantity_page = st.Page("order_quantity.py", title="Order Quantity", icon="📦")
 age_analysis_page = st.Page("ageing_analysis.py", title="Ageing Analysis", icon="📈")
+demand_forecatsing_page = st.Page("demand_forecasting.py", title="Demand Forecasting", icon="📈")
 
 
 # --- New Policy Simulators ---
@@ -67,5 +68,5 @@ continuous_page = st.Page("continuous_review.py", title="Continuous Review", ico
 periodic_page = st.Page("periodic_review.py", title="Periodic Review", icon="📅")
 
 
-pg = st.navigation([sim_page, plot_page, compare_page, demand_page, order_quantity_page, continuous_page, periodic_page, age_analysis_page])
+pg = st.navigation([sim_page, plot_page, compare_page, demand_page, order_quantity_page, continuous_page, periodic_page, demand_forecasting_page, age_analysis_page])
 pg.run()
