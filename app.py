@@ -66,7 +66,8 @@ demand_forecasting_page = st.Page("demand_forecasting.py", title="Demand Forecas
 # --- New Policy Simulators ---
 continuous_page = st.Page("continuous_review.py", title="Continuous Review", icon="♾️")
 periodic_page = st.Page("periodic_review.py", title="Periodic Review", icon="📅")
+lead_time_scenario = st.Page("stochastic_eoq_scenarios.py", title="Lead Time Analysis", icon="📅")
 
 
-pg = st.navigation([sim_page, plot_page, compare_page, demand_page, order_quantity_page, continuous_page, periodic_page, demand_forecasting_page, age_analysis_page])
+pg = st.navigation([sim_page, plot_page, compare_page, demand_page, order_quantity_page, continuous_page, periodic_page, demand_forecasting_page, age_analysis_page, lead_time_scenario])
 pg.run()
