@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from scipy.stats import norm
+from scipy.stats import norm, gamma
 
 st.set_page_config(page_title="Compare Inventory Policies", layout="wide")
 
@@ -21,10 +21,25 @@ def style_plotly_fig(fig):
     fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
     return fig
 
+# Adaptive Demand Generation (Normal for low CoV, Gamma for high CoV)
 @st.cache_data(show_spinner=False)
 def generate_demand(mu, sigma, days, paths, seed):
     np.random.seed(seed)
-    return np.maximum(0, np.random.normal(mu, sigma, (paths, days)).round())
+    if sigma == 0:
+        return np.full((paths, days), mu)
+        
+    cov = sigma / mu if mu > 0 else 0
+    
+    if cov <= 0.5:
+        # Low CoV: Normal distribution with zero-truncation
+        raw_demand = np.maximum(0, np.random.normal(mu, sigma, (paths, days)))
+    else:
+        # High CoV: Gamma distribution (strictly non-negative, naturally handles lumpy spikes)
+        shape = (mu / sigma) ** 2
+        scale = (sigma ** 2) / mu
+        raw_demand = np.random.gamma(shape, scale, (paths, days))
+        
+    return np.round(raw_demand)
 
 # Detailed single-path simulator for the raw data table
 def simulate_single_path_detailed(demand_arr, policy_type, p1, p2, L, opening_inv, unit_cost):
@@ -46,7 +61,7 @@ def simulate_single_path_detailed(demand_arr, policy_type, p1, p2, L, opening_in
         inventory += shipment_received
         
         # 2. Fulfill demand (Lost Sales Model)
-        active_backorders = 0 # Assuming lost sales for this model
+        active_backorders = 0 
         if inventory >= demand_today:
             inventory -= demand_today
             daily_lost_sales = 0
@@ -66,13 +81,15 @@ def simulate_single_path_detailed(demand_arr, policy_type, p1, p2, L, opening_in
                 pipeline_orders.append((day + L, new_order))
         elif policy_type == "Min-Max (s, S)":
             if inventory_position < p1:
-                new_order = p2 - inventory_position
-                pipeline_orders.append((day + L, new_order))
+                new_order = max(0, p2 - inventory_position)
+                if new_order > 0:
+                    pipeline_orders.append((day + L, new_order))
         elif policy_type == "Periodic (R, S)":
             if day % int(p1) == 0:
                 if inventory_position < p2:
-                    new_order = p2 - inventory_position
-                    pipeline_orders.append((day + L, new_order))
+                    new_order = max(0, p2 - inventory_position)
+                    if new_order > 0:
+                        pipeline_orders.append((day + L, new_order))
                     
         closing_net_pipeline = net_inventory + pipeline_qty + new_order
         blocked_wc = inventory * unit_cost
@@ -127,12 +144,14 @@ def simulate_policy_multi_path(demand_matrix, policy_type, p1, p2, L, opening_in
             order_count += trigger.astype(int)
         elif policy_type == "Min-Max (s, S)":
             trigger = inv_pos < p1
-            pipeline[trigger, day + L] += (p2 - inv_pos[trigger])
+            order_qty = np.maximum(0, p2 - inv_pos)
+            pipeline[trigger, day + L] += order_qty[trigger]
             order_count += trigger.astype(int)
         elif policy_type == "Periodic (R, S)":
             if day % int(p1) == 0:
                 trigger = inv_pos < p2
-                pipeline[trigger, day + L] += (p2 - inv_pos[trigger])
+                order_qty = np.maximum(0, p2 - inv_pos)
+                pipeline[trigger, day + L] += order_qty[trigger]
                 order_count += trigger.astype(int)
                 
     return hist_phys, hist_pipe, hist_tot, hist_stockout, unmet_tot, order_count
@@ -162,7 +181,8 @@ if st.sidebar.button("🔄 Reset Demand Pattern"):
     st.session_state.sim_seed = np.random.randint(1, 10000)
     st.sidebar.success("Demand pattern randomized!")
 
-# Pre-calculate analytical baselines
+# Pre-calculate analytical baselines & check CoV
+cov = sigma / mu if mu > 0 else 0
 daily_holding = (unit_cost * holding_rate) / 365
 annual_demand = mu * 365
 analytical_eoq = int(np.sqrt((2 * annual_demand * order_cost) / (daily_holding * 365))) if daily_holding > 0 else 100
@@ -182,24 +202,37 @@ for i in range(num_policies):
         st.markdown(f"### Policy {i+1}")
         p_type = st.selectbox("Policy Type", ["Continuous (s, Q)", "Periodic (R, S)", "Min-Max (s, S)"], key=f"type_{i}")
         sl = st.slider("Target Service Level (%)", 50.0, 99.9, 95.0, 0.1, key=f"sl_{i}")
-        z = norm.ppf(sl / 100.0)
+        
+        # Adaptive Recommendation Engine (Normal vs Gamma)
+        if cov <= 0.5:
+            z = norm.ppf(sl / 100.0)
+            rec_s = int(mu * L + z * sigma * np.sqrt(L))
+            rec_S_periodic = int(mu * (L + 7) + z * sigma * np.sqrt(L + 7))
+            rec_S_lt1 = int(mu * (L + 1) + z * sigma * np.sqrt(L + 1))
+        else:
+            shape = (mu / sigma) ** 2
+            scale = (sigma ** 2) / mu
+            rec_s = int(gamma.ppf(sl / 100.0, a=shape * L, scale=scale))
+            rec_S_periodic = int(gamma.ppf(sl / 100.0, a=shape * (L + 7), scale=scale))
+            rec_S_lt1 = int(gamma.ppf(sl / 100.0, a=shape * (L + 1), scale=scale))
         
         if p_type == "Continuous (s, Q)":
-            rec_s = int(mu * L + z * sigma * np.sqrt(L))
             st.caption(f"💡 **Recommended:** Reorder Point (s) = {rec_s}, Q = {analytical_eoq} (EOQ)")
             p1 = st.number_input("Reorder Point (s)", value=rec_s, key=f"p1_{i}")
             p2 = st.number_input("Order Quantity (Q)", value=analytical_eoq, key=f"p2_{i}")
             
         elif p_type == "Periodic (R, S)":
             p1 = st.number_input("Review Period (R in days)", min_value=1, value=7, key=f"p1_{i}")
-            rec_S = int(mu * (L + p1) + z * sigma * np.sqrt(L + p1))
-            st.caption(f"💡 **Recommended:** Target Level (S) = {rec_S}")
-            p2 = st.number_input("Target Level (S)", value=rec_S, key=f"p2_{i}")
+            # Dynamically update recommendation based on chosen review period
+            if cov <= 0.5:
+                rec_S_dyn = int(mu * (L + p1) + norm.ppf(sl / 100.0) * sigma * np.sqrt(L + p1))
+            else:
+                rec_S_dyn = int(gamma.ppf(sl / 100.0, a=((mu/sigma)**2) * (L + p1), scale=(sigma**2)/mu))
+            st.caption(f"💡 **Recommended:** Target Level (S) = {rec_S_dyn}")
+            p2 = st.number_input("Target Level (S)", value=rec_S_dyn, key=f"p2_{i}")
             
         elif p_type == "Min-Max (s, S)":
-            rec_s = int(mu * L + z * sigma * np.sqrt(L))
             rec_S_eoq = rec_s + analytical_eoq
-            rec_S_lt1 = int(mu * (L + 1) + z * sigma * np.sqrt(L + 1))
             
             st.caption(f"💡 **Recommended:** Min (s) = {rec_s}")
             st.caption(f"Option 1 (EOQ-based Max): {rec_S_eoq}")
