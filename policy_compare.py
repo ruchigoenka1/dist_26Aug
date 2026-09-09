@@ -37,6 +37,7 @@ def simulate_policy_multi_path(demand_matrix, policy_type, p1, p2, L, opening_in
     hist_tot = np.zeros((paths, days))
     hist_stockout = np.zeros((paths, days))
     unmet_tot = np.zeros(paths)
+    order_count = np.zeros(paths)
     
     for day in range(days):
         inv += pipeline[:, day]
@@ -57,15 +58,18 @@ def simulate_policy_multi_path(demand_matrix, policy_type, p1, p2, L, opening_in
         if policy_type == "Continuous (s, Q)":
             trigger = inv_pos < p1
             pipeline[trigger, day + L] += p2
+            order_count += trigger.astype(int)
         elif policy_type == "Min-Max (s, S)":
             trigger = inv_pos < p1
             pipeline[trigger, day + L] += (p2 - inv_pos[trigger])
+            order_count += trigger.astype(int)
         elif policy_type == "Periodic (R, S)":
             if day % int(p1) == 0:
                 trigger = inv_pos < p2
                 pipeline[trigger, day + L] += (p2 - inv_pos[trigger])
+                order_count += trigger.astype(int)
                 
-    return hist_phys, hist_pipe, hist_tot, hist_stockout, unmet_tot
+    return hist_phys, hist_pipe, hist_tot, hist_stockout, unmet_tot, order_count
 
 # =====================================================================
 # STATE MANAGEMENT
@@ -154,26 +158,33 @@ st.divider()
 # SECTION 1: SINGLE PATH DETERMINISTIC COMPARISON
 # =====================================================================
 st.subheader("📊 Single Path Trajectory & KPI Comparison")
-st.write("Visualizing how each policy reacts to the exact same 1-year demand pattern.")
+st.write("Visualizing how each policy reacts to the exact same demand pattern.")
 
 # Run 1-path simulation
 single_demand = generate_demand(mu, sigma, sim_days, 1, st.session_state.sim_seed)
 total_dem = single_demand.sum()
 
-results_single = []
+results_ops = []
+results_fin = []
 traces = {"Physical": [], "Pipeline": [], "Total": []}
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 
 for idx, pol in enumerate(policies):
-    phys, pipe, tot, stockouts, unmet = simulate_policy_multi_path(single_demand, pol["type"], pol["p1"], pol["p2"], L, pol["ob"])
+    phys, pipe, tot, stockouts, unmet, orders = simulate_policy_multi_path(single_demand, pol["type"], pol["p1"], pol["p2"], L, pol["ob"])
     
     avg_phys = phys[0].mean()
     avg_pipe = pipe[0].mean()
     avg_tot = tot[0].mean()
     so_days = stockouts[0].sum()
     fill_rate = 100 * (1 - (unmet[0] / total_dem)) if total_dem > 0 else 100
+    orders_placed = orders[0]
     
-    results_single.append({
+    # Financial Calculations
+    hold_cost = avg_phys * unit_cost * holding_rate * (sim_days / 365.0)
+    ord_cost = orders_placed * order_cost
+    tot_inv_cost = hold_cost + ord_cost
+    
+    results_ops.append({
         "Policy": pol["name"],
         "Avg Physical Inv": avg_phys,
         "Avg Pipeline Inv": avg_pipe,
@@ -181,8 +192,15 @@ for idx, pol in enumerate(policies):
         "Min Physical Inv": phys[0].min(),
         "Max Physical Inv": phys[0].max(),
         "Stockout Days": so_days,
-        "Fill Rate (%)": fill_rate,
-        "Avg Working Capital ($)": avg_phys * unit_cost
+        "Fill Rate (%)": fill_rate
+    })
+    
+    results_fin.append({
+        "Policy": pol["name"],
+        "Avg Working Capital ($)": avg_phys * unit_cost,
+        "Holding Cost ($)": hold_cost,
+        "Ordering Cost ($)": ord_cost,
+        "Total Inventory Cost ($)": tot_inv_cost
     })
     
     # Store traces for plotting
@@ -191,7 +209,7 @@ for idx, pol in enumerate(policies):
     traces["Pipeline"].append(go.Scatter(x=x_ax, y=pipe[0], mode='lines', name=pol["name"], line=dict(color=colors[idx], dash='dot')))
     traces["Total"].append(go.Scatter(x=x_ax, y=tot[0], mode='lines', name=pol["name"], line=dict(color=colors[idx], dash='dash')))
 
-# 1. Trajectory Graphs (Tabs to prevent 12-line clutter)
+# 1. Trajectory Graphs
 tab1, tab2, tab3 = st.tabs(["Physical Inventory", "Pipeline Inventory", "Total Inventory Position"])
 
 def render_comparison_fig(trace_list, title, y_title):
@@ -205,24 +223,24 @@ with tab1: st.plotly_chart(render_comparison_fig(traces["Physical"], "Physical I
 with tab2: st.plotly_chart(render_comparison_fig(traces["Pipeline"], "Pipeline (In-Transit) Inventory Over Time", "Units"), use_container_width=True)
 with tab3: st.plotly_chart(render_comparison_fig(traces["Total"], "Total Inventory Position Over Time", "Units"), use_container_width=True)
 
-# 2. Tables
-df_kpi = pd.DataFrame(results_single)
+# 2. Tables (Stacked)
+df_ops = pd.DataFrame(results_ops)
+df_fin = pd.DataFrame(results_fin)
 
-col_t1, col_t2 = st.columns([6, 4])
-with col_t1:
-    st.markdown("**Operational KPIs**")
-    st.dataframe(df_kpi.drop(columns=["Avg Working Capital ($)"]).style.format({
-        "Avg Physical Inv": "{:.0f}", "Avg Pipeline Inv": "{:.0f}", "Avg Total Inv": "{:.0f}", 
-        "Min Physical Inv": "{:.0f}", "Max Physical Inv": "{:.0f}", 
-        "Stockout Days": "{:.0f}", "Fill Rate (%)": "{:.2f}%"
-    }), use_container_width=True, hide_index=True)
+st.markdown("### Operational KPIs")
+st.dataframe(df_ops.style.format({
+    "Avg Physical Inv": "{:.0f}", "Avg Pipeline Inv": "{:.0f}", "Avg Total Inv": "{:.0f}", 
+    "Min Physical Inv": "{:.0f}", "Max Physical Inv": "{:.0f}", 
+    "Stockout Days": "{:.0f}", "Fill Rate (%)": "{:.2f}%"
+}), use_container_width=True, hide_index=True)
 
-with col_t2:
-    st.markdown("**Financial KPIs**")
-    st.dataframe(df_kpi[["Policy", "Avg Working Capital ($)"]].style.format({
-        "Avg Working Capital ($)": "${:,.2f}"
-    }), use_container_width=True, hide_index=True)
-
+st.markdown("### Financial KPIs")
+st.dataframe(df_fin.style.format({
+    "Avg Working Capital ($)": "${:,.2f}",
+    "Holding Cost ($)": "${:,.2f}",
+    "Ordering Cost ($)": "${:,.2f}",
+    "Total Inventory Cost ($)": "${:,.2f}"
+}), use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -249,13 +267,18 @@ if run_mc:
         mc_results = []
         
         for pol in policies:
-            phys, pipe, tot, stockouts, unmet = simulate_policy_multi_path(mc_demand, pol["type"], pol["p1"], pol["p2"], L, pol["ob"])
+            phys, pipe, tot, stockouts, unmet, orders = simulate_policy_multi_path(mc_demand, pol["type"], pol["p1"], pol["p2"], L, pol["ob"])
             
-            # Arrays of shape (paths,) representing the average/sum per path
+            # Aggregate per path
             avg_phys_per_path = phys.mean(axis=1)
-            wc_per_path = avg_phys_per_path * unit_cost
             so_days_per_path = stockouts.sum(axis=1)
             fill_rate_per_path = np.where(mc_total_dem_per_path > 0, 100 * (1 - (unmet / mc_total_dem_per_path)), 100)
+            
+            # Financials per path
+            wc_per_path = avg_phys_per_path * unit_cost
+            holding_cost_per_path = wc_per_path * holding_rate * (sim_days / 365.0)
+            ordering_cost_per_path = orders * order_cost
+            tot_cost_per_path = holding_cost_per_path + ordering_cost_per_path
             
             mc_results.append({
                 "Policy": pol["name"],
@@ -263,8 +286,8 @@ if run_mc:
                 f"Worst-Case Fill Rate (p{100-mc_percentile})": f"{np.percentile(fill_rate_per_path, 100-mc_percentile):.2f}%",
                 "Mean Stockout Days": f"{so_days_per_path.mean():.1f}",
                 f"Worst-Case Stockout Days (p{mc_percentile})": f"{np.percentile(so_days_per_path, mc_percentile):.1f}",
-                "Mean Working Capital": f"${wc_per_path.mean():,.0f}",
-                f"Worst-Case Working Cap (p{mc_percentile})": f"${np.percentile(wc_per_path, mc_percentile):,.0f}"
+                "Mean Total Inv Cost": f"${tot_cost_per_path.mean():,.0f}",
+                f"Worst-Case Inv Cost (p{mc_percentile})": f"${np.percentile(tot_cost_per_path, mc_percentile):,.0f}"
             })
             
         st.markdown(f"#### Monte Carlo Aggregates ({mc_paths} Paths)")
