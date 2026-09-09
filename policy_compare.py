@@ -26,7 +26,73 @@ def generate_demand(mu, sigma, days, paths, seed):
     np.random.seed(seed)
     return np.maximum(0, np.random.normal(mu, sigma, (paths, days)).round())
 
-# Vectorized simulation engine for all policy types
+# Detailed single-path simulator for the raw data table
+def simulate_single_path_detailed(demand_arr, policy_type, p1, p2, L, opening_inv, unit_cost):
+    days = len(demand_arr)
+    inventory = float(opening_inv)
+    pipeline_orders = []
+    
+    data = []
+    start_date = pd.Timestamp("2024-01-01")
+    
+    for day in range(days):
+        demand_today = demand_arr[day]
+        opening_phys = inventory
+        
+        # 1. Receive shipments
+        shipment_received = sum([qty for arr_day, qty in pipeline_orders if arr_day == day])
+        pipeline_orders = [(arr_day, qty) for arr_day, qty in pipeline_orders if arr_day != day]
+        
+        inventory += shipment_received
+        
+        # 2. Fulfill demand (Lost Sales Model)
+        active_backorders = 0 # Assuming lost sales for this model
+        if inventory >= demand_today:
+            inventory -= demand_today
+            daily_lost_sales = 0
+        else:
+            daily_lost_sales = demand_today - inventory
+            inventory = 0
+            
+        net_inventory = inventory - active_backorders
+        pipeline_qty = sum([qty for arr_day, qty in pipeline_orders])
+        inventory_position = net_inventory + pipeline_qty
+        
+        # 3. Order Triggers
+        new_order = 0
+        if policy_type == "Continuous (s, Q)":
+            if inventory_position < p1:
+                new_order = p2
+                pipeline_orders.append((day + L, new_order))
+        elif policy_type == "Min-Max (s, S)":
+            if inventory_position < p1:
+                new_order = p2 - inventory_position
+                pipeline_orders.append((day + L, new_order))
+        elif policy_type == "Periodic (R, S)":
+            if day % int(p1) == 0:
+                if inventory_position < p2:
+                    new_order = p2 - inventory_position
+                    pipeline_orders.append((day + L, new_order))
+                    
+        closing_net_pipeline = net_inventory + pipeline_qty + new_order
+        blocked_wc = inventory * unit_cost
+        
+        data.append([
+            (start_date + pd.Timedelta(days=day)).strftime("%Y-%m-%d"),
+            opening_phys, demand_today, shipment_received, active_backorders,
+            net_inventory, inventory, pipeline_qty, inventory_position,
+            new_order, closing_net_pipeline, daily_lost_sales, blocked_wc
+        ])
+        
+    cols = [
+        "Date", "Opening Physical", "Demand", "Shipment Received", 
+        "Active Backorders", "Net Inventory", "Physical Inventory", 
+        "Pipeline Order", "Inventory Position", "New Order", 
+        "Closing Net Including Pipeline", "Daily Lost Sales", "Blocked Working Capital"
+    ]
+    return pd.DataFrame(data, columns=cols)
+
+# Vectorized simulation engine for multi-path
 def simulate_policy_multi_path(demand_matrix, policy_type, p1, p2, L, opening_inv):
     paths, days = demand_matrix.shape
     inv = np.full(paths, float(opening_inv))
@@ -168,12 +234,7 @@ results_ops = []
 results_fin = []
 traces = {"Physical": [], "Pipeline": [], "Total": []}
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
-
-# Dictionary to hold data for the raw table
-df_daily_dict = {
-    "Day": np.arange(1, sim_days + 1),
-    "Demand": single_demand[0].astype(int)
-}
+detailed_dfs = {}
 
 for idx, pol in enumerate(policies):
     phys, pipe, tot, stockouts, unmet, orders = simulate_policy_multi_path(single_demand, pol["type"], pol["p1"], pol["p2"], L, pol["ob"])
@@ -215,12 +276,11 @@ for idx, pol in enumerate(policies):
     traces["Pipeline"].append(go.Scatter(x=x_ax, y=pipe[0], mode='lines', name=pol["name"], line=dict(color=colors[idx], dash='dot')))
     traces["Total"].append(go.Scatter(x=x_ax, y=tot[0], mode='lines', name=pol["name"], line=dict(color=colors[idx], dash='dash')))
     
-    # Store data for raw table
-    df_daily_dict[f"{pol['name']} (Phys)"] = phys[0].astype(int)
-    df_daily_dict[f"{pol['name']} (Pipe)"] = pipe[0].astype(int)
-    df_daily_dict[f"{pol['name']} (Total)"] = tot[0].astype(int)
+    # Generate detailed dataframe for this policy
+    detailed_dfs[pol["name"]] = simulate_single_path_detailed(single_demand[0], pol["type"], pol["p1"], pol["p2"], L, pol["ob"], unit_cost)
 
-# 1. Trajectory Graphs
+# --- GRAPH SECTION ---
+st.markdown("### Inventory Trajectories")
 tab1, tab2, tab3 = st.tabs(["Physical Inventory", "Pipeline Inventory", "Total Inventory Position"])
 
 def render_comparison_fig(trace_list, title, y_title):
@@ -234,7 +294,7 @@ with tab1: st.plotly_chart(render_comparison_fig(traces["Physical"], "Physical I
 with tab2: st.plotly_chart(render_comparison_fig(traces["Pipeline"], "Pipeline (In-Transit) Inventory Over Time", "Units"), use_container_width=True)
 with tab3: st.plotly_chart(render_comparison_fig(traces["Total"], "Total Inventory Position Over Time", "Units"), use_container_width=True)
 
-# 2. Tables (Stacked)
+# --- KPI TABLE SECTION ---
 df_ops = pd.DataFrame(results_ops)
 df_fin = pd.DataFrame(results_fin)
 
@@ -255,11 +315,13 @@ st.dataframe(df_fin.style.format({
 
 st.divider()
 
-# 3. Demand Distribution & Raw Data Table
-c_hist, c_data = st.columns([1, 1])
+# --- DEMAND & RAW DATA SECTION ---
+st.subheader("📈 Demand Distribution & Raw Data")
 
-with c_hist:
-    st.markdown("### Simulated Demand Profile")
+d_col1, d_col2 = st.columns(2)
+
+with d_col1:
+    st.markdown("#### Simulated Demand Profile (Daily)")
     fig_hist = go.Figure(data=[go.Histogram(
         x=single_demand[0], 
         marker_color='rgba(173, 216, 230, 0.8)', 
@@ -267,13 +329,45 @@ with c_hist:
     )])
     fig_hist.update_layout(title="Frequency of Daily Demand", xaxis_title="Demand Quantity", yaxis_title="Days")
     st.plotly_chart(style_plotly_fig(fig_hist), use_container_width=True)
+    
+with d_col2:
+    st.markdown("#### Rolling Window Demand Profile")
+    roll_window = st.number_input("Rolling Window (Days)", min_value=1, max_value=365, value=7)
+    rolling_demand = pd.Series(single_demand[0]).rolling(roll_window).sum().dropna()
+    
+    fig_roll = go.Figure(data=[go.Histogram(
+        x=rolling_demand, 
+        marker_color='rgba(255, 165, 0, 0.8)', 
+        marker_line=dict(color='#ff8c00', width=1)
+    )])
+    fig_roll.update_layout(title=f"Frequency of {roll_window}-Day Rolling Demand", xaxis_title="Demand Quantity", yaxis_title="Periods")
+    st.plotly_chart(style_plotly_fig(fig_roll), use_container_width=True)
 
-with c_data:
-    st.markdown("### Daily Raw Data")
-    st.write("Inspect the day-by-day progression for all active policies.")
-    with st.expander("🔍 View Simulation Data Table", expanded=False):
-        df_daily = pd.DataFrame(df_daily_dict)
-        st.dataframe(df_daily, use_container_width=True, hide_index=True)
+st.markdown("#### Detailed Daily Raw Data")
+selected_pol_data = st.selectbox("Select Policy to view raw data:", list(detailed_dfs.keys()))
+
+with st.expander(f"🔍 View Simulation Data Table for {selected_pol_data}", expanded=False):
+    st.dataframe(detailed_dfs[selected_pol_data].style.format({
+        "Opening Physical": "{:.0f}",
+        "Demand": "{:.0f}",
+        "Shipment Received": "{:.0f}",
+        "Active Backorders": "{:.0f}",
+        "Net Inventory": "{:.0f}",
+        "Physical Inventory": "{:.0f}",
+        "Pipeline Order": "{:.0f}",
+        "Inventory Position": "{:.0f}",
+        "New Order": "{:.0f}",
+        "Closing Net Including Pipeline": "{:.0f}",
+        "Daily Lost Sales": "{:.0f}",
+        "Blocked Working Capital": "${:,.2f}"
+    }), use_container_width=True, hide_index=True)
+    
+    st.markdown(f"**{roll_window}-Day Rolling Demand Data**")
+    df_roll = pd.DataFrame({
+        "Period End Date": pd.date_range(start="2024-01-01", periods=sim_days)[roll_window-1:].strftime("%Y-%m-%d"),
+        f"{roll_window}-Day Total Demand": rolling_demand.values
+    })
+    st.dataframe(df_roll, use_container_width=True, hide_index=True)
 
 st.divider()
 
