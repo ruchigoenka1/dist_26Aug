@@ -169,6 +169,12 @@ results_fin = []
 traces = {"Physical": [], "Pipeline": [], "Total": []}
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 
+# Dictionary to hold data for the raw table
+df_daily_dict = {
+    "Day": np.arange(1, sim_days + 1),
+    "Demand": single_demand[0].astype(int)
+}
+
 for idx, pol in enumerate(policies):
     phys, pipe, tot, stockouts, unmet, orders = simulate_policy_multi_path(single_demand, pol["type"], pol["p1"], pol["p2"], L, pol["ob"])
     
@@ -208,6 +214,11 @@ for idx, pol in enumerate(policies):
     traces["Physical"].append(go.Scatter(x=x_ax, y=phys[0], mode='lines', name=pol["name"], line=dict(color=colors[idx])))
     traces["Pipeline"].append(go.Scatter(x=x_ax, y=pipe[0], mode='lines', name=pol["name"], line=dict(color=colors[idx], dash='dot')))
     traces["Total"].append(go.Scatter(x=x_ax, y=tot[0], mode='lines', name=pol["name"], line=dict(color=colors[idx], dash='dash')))
+    
+    # Store data for raw table
+    df_daily_dict[f"{pol['name']} (Phys)"] = phys[0].astype(int)
+    df_daily_dict[f"{pol['name']} (Pipe)"] = pipe[0].astype(int)
+    df_daily_dict[f"{pol['name']} (Total)"] = tot[0].astype(int)
 
 # 1. Trajectory Graphs
 tab1, tab2, tab3 = st.tabs(["Physical Inventory", "Pipeline Inventory", "Total Inventory Position"])
@@ -241,6 +252,28 @@ st.dataframe(df_fin.style.format({
     "Ordering Cost ($)": "${:,.2f}",
     "Total Inventory Cost ($)": "${:,.2f}"
 }), use_container_width=True, hide_index=True)
+
+st.divider()
+
+# 3. Demand Distribution & Raw Data Table
+c_hist, c_data = st.columns([1, 1])
+
+with c_hist:
+    st.markdown("### Simulated Demand Profile")
+    fig_hist = go.Figure(data=[go.Histogram(
+        x=single_demand[0], 
+        marker_color='rgba(173, 216, 230, 0.8)', 
+        marker_line=dict(color='#3399ff', width=1)
+    )])
+    fig_hist.update_layout(title="Frequency of Daily Demand", xaxis_title="Demand Quantity", yaxis_title="Days")
+    st.plotly_chart(style_plotly_fig(fig_hist), use_container_width=True)
+
+with c_data:
+    st.markdown("### Daily Raw Data")
+    st.write("Inspect the day-by-day progression for all active policies.")
+    with st.expander("🔍 View Simulation Data Table", expanded=False):
+        df_daily = pd.DataFrame(df_daily_dict)
+        st.dataframe(df_daily, use_container_width=True, hide_index=True)
 
 st.divider()
 
