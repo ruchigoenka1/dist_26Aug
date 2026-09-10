@@ -38,7 +38,6 @@ def generate_adaptive_demand(mu, sigma, days, seed):
 # SIMULATION ENGINES
 # =====================================================================
 def simulate_independent_continuous(sku_data, sim_days, L, shared_order_cost, holding_rate, sl):
-    """Simulates each SKU independently using an (s, Q) policy."""
     total_holding_cost = 0.0
     total_transport_cost = 0.0
     total_orders_placed = 0
@@ -49,7 +48,6 @@ def simulate_independent_continuous(sku_data, sim_days, L, shared_order_cost, ho
         mu, sigma, unit_cost = row['Daily Mean'], row['Std Dev'], row['Unit Cost ($)']
         cov = sigma / mu if mu > 0 else 0
         
-        # Calculate Policy Parameters
         if cov <= 0.5:
             s = int(mu * L + norm.ppf(sl) * sigma * np.sqrt(L))
         else:
@@ -58,7 +56,6 @@ def simulate_independent_continuous(sku_data, sim_days, L, shared_order_cost, ho
         daily_hc = (unit_cost * holding_rate) / 365
         Q = max(1, int(np.sqrt((2 * mu * 365 * shared_order_cost) / max(0.01, daily_hc * 365))))
         
-        # Simulation
         demand = generate_adaptive_demand(mu, sigma, sim_days, 42)
         inv = s + Q
         pipeline = np.zeros(sim_days + L + 1)
@@ -66,17 +63,21 @@ def simulate_independent_continuous(sku_data, sim_days, L, shared_order_cost, ho
         holding_units = 0
         orders = 0
         
+        # Track physical inventory for min/max/avg
+        inv_history = np.zeros(sim_days)
+        
         for day in range(sim_days):
             inv += pipeline[day]
             inv = max(0, inv - demand[day])
             holding_units += inv
+            inv_history[day] = inv
             
             inv_pos = inv + sum(pipeline[day+1 : day+L+1])
             if inv_pos < s:
                 pipeline[day + L] += Q
                 orders += 1
                 total_orders_placed += 1
-                total_transport_cost += shared_order_cost # Independent: Pays full cost per trigger
+                total_transport_cost += shared_order_cost
                 
         sku_holding_cost = holding_units * daily_hc
         total_holding_cost += sku_holding_cost
@@ -84,6 +85,9 @@ def simulate_independent_continuous(sku_data, sim_days, L, shared_order_cost, ho
         sku_results.append({
             "SKU": row['SKU'],
             "Policy": f"Indep (s={s}, Q={Q})",
+            "Avg Inv": int(inv_history.mean()),
+            "Min Inv": int(inv_history.min()),
+            "Max Inv": int(inv_history.max()),
             "Orders": orders,
             "Holding Cost": sku_holding_cost
         })
@@ -91,12 +95,10 @@ def simulate_independent_continuous(sku_data, sim_days, L, shared_order_cost, ho
     return total_holding_cost, total_transport_cost, total_orders_placed, sku_results
 
 def simulate_joint_periodic(sku_data, sim_days, L, R, shared_order_cost, holding_rate, sl):
-    """Simulates all SKUs jointly using an (R, S) policy. Transport cost incurred once per review if any order is placed."""
     total_holding_cost = 0.0
     total_transport_cost = 0.0
     joint_orders_placed = 0
     
-    # Setup arrays for all SKUs
     num_skus = len(sku_data)
     demands = np.zeros((num_skus, sim_days))
     invs = np.zeros(num_skus)
@@ -115,17 +117,20 @@ def simulate_joint_periodic(sku_data, sim_days, L, R, shared_order_cost, holding
         else:
             target_S[i] = int(gamma.ppf(sl, a=((mu/sigma)**2)*(L+R), scale=(sigma**2)/mu)) if sigma > 0 else int(mu * (L+R))
             
-        invs[i] = target_S[i] # Opening inventory
+        invs[i] = target_S[i]
         
     total_holding_units = np.zeros(num_skus)
     sku_order_counts = np.zeros(num_skus)
+    
+    # Track physical inventory for min/max/avg
+    inv_history = np.zeros((num_skus, sim_days))
     
     for day in range(sim_days):
         invs += pipelines[:, day]
         invs = np.maximum(0, invs - demands[:, day])
         total_holding_units += invs
+        inv_history[:, day] = invs
         
-        # Joint Review Trigger
         if day % R == 0:
             inv_pos = invs + np.sum(pipelines[:, day+1 : day+L+1], axis=1)
             order_qtys = np.maximum(0, target_S - inv_pos)
@@ -133,7 +138,7 @@ def simulate_joint_periodic(sku_data, sim_days, L, R, shared_order_cost, holding
             if np.any(order_qtys > 0):
                 pipelines[:, day + L] += order_qtys
                 joint_orders_placed += 1
-                total_transport_cost += shared_order_cost # Paid only ONCE for the whole truck
+                total_transport_cost += shared_order_cost 
                 sku_order_counts += (order_qtys > 0).astype(int)
                 
     sku_holding_costs = total_holding_units * daily_hcs
@@ -144,6 +149,9 @@ def simulate_joint_periodic(sku_data, sim_days, L, R, shared_order_cost, holding
         sku_results.append({
             "SKU": row['SKU'],
             "Policy": f"Joint (R={R}, S={int(target_S[i])})",
+            "Avg Inv": int(inv_history[i].mean()),
+            "Min Inv": int(inv_history[i].min()),
+            "Max Inv": int(inv_history[i].max()),
             "Orders (Included in Joint)": int(sku_order_counts[i]),
             "Holding Cost": sku_holding_costs[i]
         })
@@ -249,8 +257,8 @@ if st.button("🚀 Run Synchronization Analysis", type="primary"):
             "Total Cost": "${:,.0f}"
         }), use_container_width=True, hide_index=True)
         
-        st.markdown("### 🔍 SKU-Level Breakdown (Independent Baseline vs Optimal Joint)")
-        # Find the best joint scenario
+        st.markdown("### 🔍 SKU-Level Breakdown")
+        
         best_joint = min(results_summary[1:], key=lambda x: x["Total Cost"])
         best_r = int(best_joint["Strategy"].split("=")[1].replace(")", ""))
         
@@ -259,10 +267,18 @@ if st.button("🚀 Run Synchronization Analysis", type="primary"):
         df_ind_detail = pd.DataFrame(detail_ind)
         df_best_detail = pd.DataFrame(best_detail)
         
-        d_col1, d_col2 = st.columns(2)
-        with d_col1:
-            st.markdown("**Independent Continuous Detail**")
-            st.dataframe(df_ind_detail.style.format({"Holding Cost": "${:,.0f}"}), use_container_width=True, hide_index=True)
-        with d_col2:
-            st.markdown(f"**Best Coordinated Detail ({best_joint['Strategy']})**")
-            st.dataframe(df_best_detail.style.format({"Holding Cost": "${:,.0f}"}), use_container_width=True, hide_index=True)
+        st.markdown("**Independent Continuous Detail**")
+        st.dataframe(df_ind_detail.style.format({
+            "Holding Cost": "${:,.0f}",
+            "Avg Inv": "{:,}",
+            "Min Inv": "{:,}",
+            "Max Inv": "{:,}"
+        }), use_container_width=True, hide_index=True)
+        
+        st.markdown(f"**Best Coordinated Detail ({best_joint['Strategy']})**")
+        st.dataframe(df_best_detail.style.format({
+            "Holding Cost": "${:,.0f}",
+            "Avg Inv": "{:,}",
+            "Min Inv": "{:,}",
+            "Max Inv": "{:,}"
+        }), use_container_width=True, hide_index=True)
