@@ -57,6 +57,7 @@ with st.sidebar:
 sim_page = st.Page("sim_page.py", title="Inventory Simulator", icon="⚙️")
 plot_page = st.Page("plot_page.py", title="Closing Balance Plotter", icon="📈")
 compare_page = st.Page("compare_page.py", title="Historical Comparison", icon="⚖️")
+compare_seasonal_page= st.Page("compare_page_seasonal.py", title="Historical Comparison - Seasonal Data", icon="⚖️")
 demand_page = st.Page("demand_analysis.py", title="Demand Analysis", icon="📊")
 order_quantity_page = st.Page("order_quantity.py", title="Order Quantity", icon="📦")
 age_analysis_page = st.Page("ageing_analysis.py", title="Ageing Analysis", icon="📈")
