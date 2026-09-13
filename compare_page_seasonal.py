@@ -339,6 +339,12 @@ if uploaded_file is not None:
         fig1.add_hrect(y0=ref_line*0.5, y1=ref_line, fillcolor="yellow", opacity=0.1)
         fig1.add_hrect(y0=ref_line, y1=max_y, fillcolor="green", opacity=0.05)
 
+        # --- NEW CODE TO ADD ---
+        for s_date in season_starts[1:]:
+            fig1.add_vline(x=s_date, line_dash="dot", line_color="#ffaa00", opacity=0.8, 
+                           annotation_text=" New Season", annotation_position="top right", annotation_font_color="#ffaa00")
+        # -----------------------
+
         fig1 = style_plotly_fig(fig1, skipped_dates_for_plotly, is_numeric_index)
         st.plotly_chart(fig1, use_container_width=True)
 
@@ -358,6 +364,12 @@ if uploaded_file is not None:
             
         fig2.add_hline(y=ref_line, line_dash="dash", line_color="gray", annotation_text=ref_label, annotation_font_color="white")
         fig2.add_hline(y=0, line_color="red", line_width=1) 
+
+        # --- NEW CODE TO ADD ---
+        for s_date in season_starts[1:]:
+            fig2.add_vline(x=s_date, line_dash="dot", line_color="#ffaa00", opacity=0.8, 
+                           annotation_text=" New Season", annotation_position="top right", annotation_font_color="#ffaa00")
+        # -----------------------
 
         fig2 = style_plotly_fig(fig2, skipped_dates_for_plotly, is_numeric_index)
         fig2.update_yaxes(rangemode="normal") 
