@@ -6,7 +6,7 @@ import io
 from scipy.stats import norm
 
 # Updated styling function for a dark background
-def style_plotly_fig(fig):
+def style_plotly_fig(fig, skipped_dates=None, is_numeric=False):
     fig.update_layout(
         plot_bgcolor='#0E1117', 
         paper_bgcolor='#0E1117',
@@ -24,6 +24,11 @@ def style_plotly_fig(fig):
     )
     fig.update_xaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b')
     fig.update_yaxes(showline=True, linewidth=1, linecolor='gray', gridcolor='#2b2b2b', rangemode="tozero")
+    
+    # Apply rangebreaks to physically collapse the off-season gap on the chart
+    if not is_numeric and skipped_dates:
+        fig.update_xaxes(rangebreaks=[dict(values=skipped_dates)])
+        
     return fig
 
 # ------------------------------------------------
@@ -61,7 +66,6 @@ uploaded_file = st.file_uploader("Upload Historical Data", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Load Data
         if uploaded_file.name.endswith('.csv'):
             df_hist = pd.read_csv(uploaded_file)
         else:
@@ -70,7 +74,6 @@ if uploaded_file is not None:
         time_col = df_hist.columns[0]
         balance_col = df_hist.columns[1]
         
-        # Handle gaps in dates/days
         is_numeric_index = pd.api.types.is_numeric_dtype(df_hist[time_col])
         if not is_numeric_index:
             df_hist[time_col] = pd.to_datetime(df_hist[time_col])
@@ -78,11 +81,12 @@ if uploaded_file is not None:
         df_hist = df_hist.sort_values(by=time_col)
         df_hist.set_index(time_col, inplace=True)
         
-        # --- NEW LOGIC: Season Stitching (Drop off-seasons completely) ---
+        # --- LOGIC: Season Stitching & Gap Detection ---
         stitched_dates = []
+        skipped_dates_for_plotly = []
         actual_dates = df_hist.index.tolist()
         
-        gap_threshold = 20 # Define the maximum acceptable gap in days before triggering a season restart
+        gap_threshold = 20 
         season_starts = [actual_dates[0]] 
         
         for i in range(len(actual_dates) - 1):
@@ -97,24 +101,24 @@ if uploaded_file is not None:
                 
             if gap > 1:
                 if gap <= gap_threshold:
-                    # Fill the short gap
                     if is_numeric_index:
                         missing = list(range(int(start_date) + 1, int(end_date)))
                     else:
                         missing = pd.date_range(start=start_date + pd.Timedelta(days=1), end=end_date - pd.Timedelta(days=1)).tolist()
                     stitched_dates.extend(missing)
                 else:
-                    # Gap is too large. Do not fill. Mark end_date as a season start.
                     season_starts.append(end_date)
+                    # Track the exact dates being removed so Plotly can hide the gap
+                    if not is_numeric_index:
+                        skipped = pd.date_range(start=start_date + pd.Timedelta(days=1), end=end_date - pd.Timedelta(days=1)).tolist()
+                        skipped_dates_for_plotly.extend([d.strftime('%Y-%m-%d') for d in skipped])
                     
         stitched_dates.append(actual_dates[-1])
         
-        # Reindex with stitched dates to drop the dead off-season
         df_filled = df_hist.reindex(stitched_dates).ffill()
         df_filled.reset_index(inplace=True)
         df_filled.rename(columns={'index': time_col}, inplace=True)
         
-        # Extract daily demand by finding the day-over-day drop in closing balance
         df_filled['Previous Balance'] = df_filled[balance_col].shift(1)
         
         df_filled['Derived Demand'] = np.where(
@@ -123,11 +127,9 @@ if uploaded_file is not None:
             0
         )
         
-        # --- NEW LOGIC: Zero out demand on season restarts to prevent massive fake sales ---
         df_filled.loc[df_filled[time_col].isin(season_starts), 'Derived Demand'] = 0
         df_filled['Derived Demand'] = df_filled['Derived Demand'].fillna(0)
         
-        # Pre-calculate historical stats for Periodic Review calculations
         avg_demand_hist = df_filled['Derived Demand'].mean() if len(df_filled) > 0 else 0
         std_demand_hist = df_filled['Derived Demand'].std() if len(df_filled) > 1 else 0
 
@@ -143,25 +145,18 @@ if uploaded_file is not None:
             reorder_point = st.sidebar.number_input("Reorder Point", value=200)
             order_qty = st.sidebar.number_input("Order Quantity", value=300)
             default_ob = int(1.25 * reorder_point)
-            
             ref_line = reorder_point
             ref_label = "Reorder Point"
             
         else:
             review_period = st.sidebar.number_input("Review Period (Days)", value=7)
-            
-            # Dynamic baseline default: Avg demand during review + lead time, plus a 50% buffer
             default_S = int(round(avg_demand_hist * (review_period + lead_time) * 1.5)) if avg_demand_hist > 0 else 500
-            
-            # User directly inputs the exact Order-Up-To Level (S)
             order_up_to_S = st.sidebar.number_input("Order-Up-To Level (S)", min_value=1, value=max(1, default_S))
-            
             default_ob = int(1.25 * order_up_to_S)
-            
             ref_line = order_up_to_S
             ref_label = "Target Level (S)"
         
-        opening_balance = st.sidebar.number_input("Opening Balance", value=default_ob)
+        opening_balance = st.sidebar.number_input("Initial Opening Balance", value=default_ob)
         
         st.sidebar.subheader("Backorder Policy")
         max_wait_time = st.sidebar.number_input("Max Customer Wait Time (Days)", value=5, min_value=0, help="0 means no backorders allowed (instant lost sales).")
@@ -189,12 +184,22 @@ if uploaded_file is not None:
         total_demand_overall = 0
         total_lost_sales = 0
         
+        season_start_set = set(season_starts)
+        
         for day in range(num_days):
+            current_date = df_filled.loc[day, time_col]
+            
+            # --- LOGIC: Historical Match Reset for New Seasons ---
+            # Reset the simulated inventory to exactly match historical actuals at the start of a new season
+            if day > 0 and current_date in season_start_set:
+                inventory = df_filled.loc[day, balance_col] 
+                pipeline_orders = []
+                backorder_queue = []
+            
             demand_today = sim_demand[day]
             total_demand_overall += demand_today
             daily_lost_sales = 0
             
-            # 1. Expire unfulfilled backorders
             active_backorders = []
             for bo in backorder_queue:
                 if (day - bo['day_created']) > max_wait_time:
@@ -204,14 +209,12 @@ if uploaded_file is not None:
                     active_backorders.append(bo)
             backorder_queue = active_backorders
 
-            # 2. Receive shipments
             shipment_received = 0
             for order in pipeline_orders.copy():
                 if order[0] == day:
                     shipment_received += order[1]
                     pipeline_orders.remove(order)
 
-            # 3. Fulfill existing backorders
             while shipment_received > 0 and backorder_queue:
                 if shipment_received >= backorder_queue[0]['qty']:
                     shipment_received -= backorder_queue[0]['qty']
@@ -222,7 +225,6 @@ if uploaded_file is not None:
 
             inventory += shipment_received
 
-            # 4. Process today's demand
             if inventory >= demand_today:
                 inventory -= demand_today
             else:
@@ -234,13 +236,11 @@ if uploaded_file is not None:
                     daily_lost_sales += unmet
                     total_lost_sales += unmet
 
-            # Calculate Current Metrics
             current_backorders = sum(bo['qty'] for bo in backorder_queue)
             net_inventory = inventory - current_backorders
             pipeline_qty = sum(qty for arrival, qty in pipeline_orders)
             inventory_position = net_inventory + pipeline_qty
 
-            # 5. Order Triggers based on Policy Selection
             new_order = 0
             if policy == "Continuous Review":
                 if inventory_position < reorder_point:
@@ -273,7 +273,6 @@ if uploaded_file is not None:
         # ------------------------------------------------
         st.subheader("Comparison & Performance KPIs")
         
-        # --- Calculations ---
         avg_hist = df_filled[balance_col].mean()
         avg_sim_phys = df_filled['Physical Inventory'].mean()
         min_hist = df_filled[balance_col].min()
@@ -292,7 +291,6 @@ if uploaded_file is not None:
         if total_demand_overall > 0:
             fill_rate = ((total_demand_overall - total_lost_sales) / total_demand_overall) * 100
         
-        # --- Display Row 1: Averages & Performance ---
         st.markdown("**Averages & Performance**")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Historical Avg Inventory", round(avg_hist, 0))
@@ -303,7 +301,6 @@ if uploaded_file is not None:
         c3.metric("Lost Sale Days (Stockouts)", stockout_days)
         c4.metric("Simulated Fill Rate", f"{round(fill_rate, 2)}%")
         
-        # --- Display Row 2: Inventory Ranges ---
         st.markdown("**Inventory Ranges & Backorders**")
         r1, r2, r3, r4 = st.columns(4)
         r1.metric("Historical Min Balance", round(min_hist, 0))
@@ -311,7 +308,6 @@ if uploaded_file is not None:
         r3.metric("Simulated Min Net Inventory", round(min_sim_net, 0))
         r4.metric("Avg Active Backorders", round(avg_backorders, 1))
 
-        # --- Display Row 3: Demand Statistics ---
         st.markdown("**Historical Demand Statistics**")
         d1, d2, d3, d4, d5 = st.columns(5)
         d1.metric("Avg Daily Demand", round(avg_demand_hist, 1))
@@ -328,7 +324,6 @@ if uploaded_file is not None:
         st.subheader("Inventory & Demand Behaviour")
 
         st.markdown("### Physical Inventory vs Historical")
-        # Graph 1: Physical Inventory
         fig1 = go.Figure()
         
         fig1.add_trace(go.Scatter(x=df_filled[time_col], y=df_filled[balance_col], mode="lines", name="Historical Balance", line=dict(color="gray", width=2, dash="dash")))
@@ -347,13 +342,12 @@ if uploaded_file is not None:
         fig1.add_hrect(y0=ref_line*0.5, y1=ref_line, fillcolor="yellow", opacity=0.1)
         fig1.add_hrect(y0=ref_line, y1=max_y, fillcolor="green", opacity=0.05)
 
-        fig1 = style_plotly_fig(fig1)
+        fig1 = style_plotly_fig(fig1, skipped_dates_for_plotly, is_numeric_index)
         st.plotly_chart(fig1, use_container_width=True)
 
         st.divider()
 
         st.markdown("### Net Inventory vs Historical")
-        # Graph 2: Net Inventory 
         fig2 = go.Figure()
         
         fig2.add_trace(go.Scatter(x=df_filled[time_col], y=df_filled[balance_col], mode="lines", name="Historical Balance", line=dict(color="gray", width=2, dash="dash")))
@@ -368,26 +362,24 @@ if uploaded_file is not None:
         fig2.add_hline(y=ref_line, line_dash="dash", line_color="gray", annotation_text=ref_label, annotation_font_color="white")
         fig2.add_hline(y=0, line_color="red", line_width=1) 
 
-        fig2 = style_plotly_fig(fig2)
+        fig2 = style_plotly_fig(fig2, skipped_dates_for_plotly, is_numeric_index)
         fig2.update_yaxes(rangemode="normal") 
         st.plotly_chart(fig2, use_container_width=True)
 
         st.divider()
 
         st.markdown("### Lost Sales (Stockouts)")
-        # Graph 3: Lost Sales
         fig3 = go.Figure()
         fig3.add_trace(go.Scatter(x=df_filled[time_col], y=df_filled["Daily Lost Sales"], name="Lost Sales Qty", line=dict(color='red', width=2), fill='tozeroy', fillcolor='rgba(255,0,0,0.1)'))
-        fig3 = style_plotly_fig(fig3)
+        fig3 = style_plotly_fig(fig3, skipped_dates_for_plotly, is_numeric_index)
         st.plotly_chart(fig3, use_container_width=True)
 
         st.divider()
 
         st.markdown("### Active Backorders")
-        # Graph 4: Active Backorders
         fig4 = go.Figure()
         fig4.add_trace(go.Scatter(x=df_filled[time_col], y=df_filled["Active Backorders"], name="Active Backorders", line=dict(color='#ffaa00', width=2), fill='tozeroy', fillcolor='rgba(255,170,0,0.1)'))
-        fig4 = style_plotly_fig(fig4)
+        fig4 = style_plotly_fig(fig4, skipped_dates_for_plotly, is_numeric_index)
         st.plotly_chart(fig4, use_container_width=True)
 
         # ------------------------------------------------
