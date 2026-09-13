@@ -274,7 +274,7 @@ if uploaded_file is not None:
         # ------------------------------------------------
         
         # --- NEW CODE: Configuration Summary for Print ---
-        st.subheader("Simulation Configuration")
+        st.subheader("Simulation Configuration User Input")
         cfg1, cfg2, cfg3, cfg4 = st.columns(4)
         
         cfg1.metric("Inventory Policy", policy)
