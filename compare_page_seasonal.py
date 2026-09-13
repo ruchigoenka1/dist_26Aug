@@ -292,12 +292,7 @@ if uploaded_file is not None:
         cfg6.metric("Max Customer Wait Time", f"{max_wait_time} Days" if max_wait_time > 0 else "0 (Lost Sales)")
         
         st.divider()
-        # -------------------------------------------------
-
-        st.subheader("Comparison & Performance KPIs")
-        
-        avg_hist = df_filled[balance_col].mean()
-        # ... (rest of your KPI calculation code continues here)
+        # ------------------------------------------------
 
         
         st.subheader("Comparison & Performance KPIs")
