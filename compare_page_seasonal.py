@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import io
 from scipy.stats import norm
+import streamlit.components.v1 as components
 
 # Updated styling function for a dark background
 def style_plotly_fig(fig, skipped_dates=None, is_numeric=False):
@@ -403,6 +404,57 @@ if uploaded_file is not None:
             time_col, 'Derived Demand', 'Physical Inventory', 'Net Inventory', 
             'Active Backorders', 'Daily Lost Sales'
         ]], use_container_width=True)
+
+
+        # ------------------------------------------------
+        # Data Tables
+        # ------------------------------------------------
+        st.divider()
+        st.subheader("Historical Data")
+        st.dataframe(df_filled[[time_col, balance_col, 'Derived Demand']], use_container_width=True)
+        
+        st.subheader("Simulated Data")
+        st.dataframe(df_filled[[
+            time_col, 'Derived Demand', 'Physical Inventory', 'Net Inventory', 
+            'Active Backorders', 'Daily Lost Sales'
+        ]], use_container_width=True)
+        
+        # ------------------------------------------------
+        # PDF Export Button
+        # ------------------------------------------------
+        st.divider()
+        st.subheader("📄 Export Report")
+        st.write("Click the button below to open the print dialog. Select **'Save as PDF'** as your destination.")
+        
+        # Inject custom HTML/JS to trigger the browser's print function
+        import streamlit.components.v1 as components
+        
+        print_button_html = """
+        <div style="text-align: center;">
+            <button onclick="window.parent.print()" style="
+                background-color: #ffaa00; 
+                color: #0E1117; 
+                border: none; 
+                padding: 10px 24px; 
+                text-align: center; 
+                text-decoration: none; 
+                display: inline-block; 
+                font-size: 16px; 
+                margin: 4px 2px; 
+                cursor: pointer; 
+                border-radius: 6px;
+                font-weight: bold;
+                font-family: sans-serif;
+                transition: background-color 0.3s;
+            " onmouseover="this.style.backgroundColor='#e69900'" onmouseout="this.style.backgroundColor='#ffaa00'">
+                🖨️ Print / Save as PDF
+            </button>
+        </div>
+        """
+        components.html(print_button_html, height=70)
+        
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
         
     except Exception as e:
         st.error(f"Error processing file: {e}")
