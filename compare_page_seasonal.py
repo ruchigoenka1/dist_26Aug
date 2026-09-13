@@ -269,6 +269,37 @@ if uploaded_file is not None:
         # ------------------------------------------------
         # Output & Comparison KPIs
         # ------------------------------------------------
+        # ------------------------------------------------
+        # Output & Comparison KPIs
+        # ------------------------------------------------
+        
+        # --- NEW CODE: Configuration Summary for Print ---
+        st.subheader("Simulation Configuration")
+        cfg1, cfg2, cfg3, cfg4 = st.columns(4)
+        
+        cfg1.metric("Inventory Policy", policy)
+        cfg2.metric("Lead Time (Days)", lead_time)
+        
+        if policy == "Continuous Review":
+            cfg3.metric("Reorder Point (s)", reorder_point)
+            cfg4.metric("Order Quantity (Q)", order_qty)
+        else:
+            cfg3.metric("Review Period (R)", review_period)
+            cfg4.metric("Target Level (S)", order_up_to_S)
+            
+        cfg5, cfg6, cfg7, cfg8 = st.columns(4)
+        cfg5.metric("Initial Opening Balance", opening_balance)
+        cfg6.metric("Max Customer Wait Time", f"{max_wait_time} Days" if max_wait_time > 0 else "0 (Lost Sales)")
+        
+        st.divider()
+        # -------------------------------------------------
+
+        st.subheader("Comparison & Performance KPIs")
+        
+        avg_hist = df_filled[balance_col].mean()
+        # ... (rest of your KPI calculation code continues here)
+
+        
         st.subheader("Comparison & Performance KPIs")
         
         avg_hist = df_filled[balance_col].mean()
