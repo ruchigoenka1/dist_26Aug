@@ -184,22 +184,14 @@ if uploaded_file is not None:
         total_demand_overall = 0
         total_lost_sales = 0
         
-        season_start_set = set(season_starts)
-        
         for day in range(num_days):
             current_date = df_filled.loc[day, time_col]
-            
-            # --- LOGIC: Historical Match Reset for New Seasons ---
-            # Reset the simulated inventory to exactly match historical actuals at the start of a new season
-            if day > 0 and current_date in season_start_set:
-                inventory = df_filled.loc[day, balance_col] 
-                pipeline_orders = []
-                backorder_queue = []
             
             demand_today = sim_demand[day]
             total_demand_overall += demand_today
             daily_lost_sales = 0
             
+            # 1. Expire unfulfilled backorders
             active_backorders = []
             for bo in backorder_queue:
                 if (day - bo['day_created']) > max_wait_time:
@@ -209,12 +201,14 @@ if uploaded_file is not None:
                     active_backorders.append(bo)
             backorder_queue = active_backorders
 
+            # 2. Receive shipments
             shipment_received = 0
             for order in pipeline_orders.copy():
                 if order[0] == day:
                     shipment_received += order[1]
                     pipeline_orders.remove(order)
 
+            # 3. Fulfill existing backorders
             while shipment_received > 0 and backorder_queue:
                 if shipment_received >= backorder_queue[0]['qty']:
                     shipment_received -= backorder_queue[0]['qty']
@@ -225,6 +219,7 @@ if uploaded_file is not None:
 
             inventory += shipment_received
 
+            # 4. Process today's demand
             if inventory >= demand_today:
                 inventory -= demand_today
             else:
@@ -236,11 +231,13 @@ if uploaded_file is not None:
                     daily_lost_sales += unmet
                     total_lost_sales += unmet
 
+            # Calculate Current Metrics
             current_backorders = sum(bo['qty'] for bo in backorder_queue)
             net_inventory = inventory - current_backorders
             pipeline_qty = sum(qty for arrival, qty in pipeline_orders)
             inventory_position = net_inventory + pipeline_qty
 
+            # 5. Order Triggers based on Policy Selection
             new_order = 0
             if policy == "Continuous Review":
                 if inventory_position < reorder_point:
