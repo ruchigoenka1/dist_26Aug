@@ -71,6 +71,7 @@ lead_time_scenario = st.Page("stochastic_eoq_scenarios.py", title="Lead Time Ana
 policy_compare_page = st.Page("policy_compare.py", title="Compare Policy", icon="📅")
 cash_conv_page = st.Page("cash_conv.py", title="Cash Conversion Cycle", icon="📅")
 scen_comp_page = st.Page("scenario_comp.py", title="Compare Scenario", icon="📅")
+dual_proc_page = st.Page("dual_proc.py", title="Dual procurement", icon="📅")
 
-pg = st.navigation([sim_page, plot_page, compare_page, compare_seasonal_page, demand_page, order_quantity_page, continuous_page, periodic_page, demand_forecasting_page, age_analysis_page, lead_time_scenario, policy_compare_page,cash_conv_page, scen_comp_page  ])
+pg = st.navigation([sim_page, plot_page, compare_page, compare_seasonal_page, demand_page, order_quantity_page, continuous_page, periodic_page, demand_forecasting_page, age_analysis_page, lead_time_scenario, policy_compare_page,cash_conv_page, scen_comp_page, dual_proc_page  ])
 pg.run()
