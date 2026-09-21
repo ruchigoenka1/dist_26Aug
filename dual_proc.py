@@ -150,7 +150,6 @@ def simulate_dual_sourcing(
         hist_inv[day] = inv
         
         # Blended proxy holding cost based on end-of-day physical inventory
-        # (Assuming average weighted cost basis dynamically, simplified here to slow cost for baseline)
         total_holding_cost += (inv * slow_unit_cost * daily_holding_pct)
         
         in_transit = sum([q for d, q in slow_pipeline]) + sum([q for d, q in fast_pipeline])
@@ -221,13 +220,22 @@ def simulate_dual_sourcing(
 st.title("⚖️ Dual Procurement Policy Optimization")
 st.markdown("Compare a single-vendor supply chain against a **Base-Surge Strategy**, utilizing a slow/cheap supplier for base volume and a fast/expensive supplier for demand spikes.")
 
-st.sidebar.header("Global Demand & Financials")
-mu = st.sidebar.number_input("Daily Demand (Mean)", value=50.0)
-sigma = st.sidebar.number_input("Daily Demand (Std Dev)", value=15.0)
-sim_days = st.sidebar.number_input("Simulation Horizon (Days)", value=365)
-holding_rate = st.sidebar.number_input("Annual Holding Cost (%)", value=20.0, help="Used as a % of Unit Cost") / 100.0
+# --- GLOBAL INPUTS (MOVED FROM SIDEBAR) ---
+st.markdown("### 🌍 Global Demand & Financial Parameters")
+g_col1, g_col2, g_col3, g_col4 = st.columns(4)
+
+with g_col1:
+    mu = st.number_input("Daily Demand (Mean)", value=50.0)
+with g_col2:
+    sigma = st.number_input("Daily Demand (Std Dev)", value=15.0)
+with g_col3:
+    sim_days = st.number_input("Simulation Horizon (Days)", value=365)
+with g_col4:
+    holding_rate = st.number_input("Annual Holding Cost (%)", value=20.0, help="Used as a % of Unit Cost") / 100.0
 
 demand_arr = generate_adaptive_demand(mu, sigma, sim_days, 42)
+
+st.divider()
 
 col1, col2 = st.columns(2)
 
@@ -335,7 +343,7 @@ if st.button("🚀 Run Triple-Scenario Cost Comparison", type="primary", use_con
         df = res_dual["df"]
         k1, k2, k3 = st.columns(3)
         k1.metric("Blended Unit Cost", f"${res_dual['blended_unit_cost']:,.2f}")
-        k2.metric("Slow Volume Split", f"{(res_dual['slow_units'] / (res_dual['slow_units'] + res_dual['fast_units']))*100:.1f}%")
+        k2.metric("Slow Volume Split", f"{(res_dual['slow_units'] / (res_dual['slow_units'] + res_dual['fast_units']))*100 if (res_dual['slow_units'] + res_dual['fast_units']) > 0 else 0:.1f}%")
         k3.metric("Avg Physical Inv", f"{int(df['Physical Inventory'].mean()):,} units")
         
         tab1, tab2 = st.tabs(["Inventory Behavior", "Delivery Patterns"])
