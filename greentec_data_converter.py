@@ -83,7 +83,7 @@ if uploaded_file is not None:
         # Preview & Download Output
         # ------------------------------------------------
         st.subheader("Data Preview (App Format)")
-        st.dataframe(standard_df.head(15), use_container_width=True)
+        st.dataframe(standard_df, use_container_width=True)
         
         # Create Excel file in memory for download
         buffer = io.BytesIO()
